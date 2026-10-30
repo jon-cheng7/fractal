@@ -1,0 +1,134 @@
+/* Tokens and the few styles the app needs. All classes are prefixed fx- so they can't collide with the host site. */
+
+:root {
+    --fx-bg: #0a0a0a;
+    --fx-fg: #e5e5e5;
+    --fx-muted: #888;
+    --fx-line: rgba(255, 255, 255, 0.15);
+    --fx-accent: #c5fb45;
+    --fx-mono:
+        'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    color-scheme: dark;
+}
+
+html,
+body {
+    margin: 0;
+    height: 100%;
+    overflow: hidden;
+    background-color: var(--fx-bg);
+}
+
+/* Blueprint grid: minor lines every 24px, major every 120px. The canvas is transparent so it shows through. */
+body {
+    background-image:
+        linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+        linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+    background-size:
+        120px 120px,
+        120px 120px,
+        24px 24px,
+        24px 24px;
+    color: var(--fx-fg);
+    font-family: var(--fx-mono);
+}
+
+.fx-stage {
+    position: relative;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    cursor: grab;
+    touch-action: none;
+    outline: none;
+}
+
+.fx-stage:active {
+    cursor: grabbing;
+}
+
+.fx-stage:focus-visible {
+    outline: 1px solid var(--fx-accent);
+    outline-offset: -1px;
+}
+
+.fx-canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+}
+
+/* No backdrop blur here: it would be recomputed under a canvas that redraws every frame. */
+.fx-hud {
+    position: absolute;
+    top: 0.75rem;
+    left: 0.75rem;
+    margin: 0;
+    padding: 0.6rem 0.8rem;
+    min-width: 8.5rem;
+    border: 1px solid var(--fx-line);
+    border-radius: 10px;
+    background: rgba(10, 10, 10, 0.92);
+    pointer-events: none;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    line-height: 1.7;
+}
+
+.fx-hud[hidden] {
+    display: none;
+}
+
+.fx-hud-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1.25rem;
+}
+
+.fx-hud dt {
+    color: var(--fx-muted);
+}
+
+.fx-hud dd {
+    margin: 0;
+    color: var(--fx-fg);
+    font-variant-numeric: tabular-nums;
+}
+
+.fx-hud dd.fx-hud-accent {
+    color: var(--fx-accent);
+}
+
+.fx-hint {
+    position: absolute;
+    left: 0.75rem;
+    bottom: 0.75rem;
+    margin: 0;
+    padding: 0.45rem 0.7rem;
+    max-width: calc(100% - 1.5rem);
+    box-sizing: border-box;
+    border: 1px solid var(--fx-line);
+    border-radius: 10px;
+    background: rgba(10, 10, 10, 0.92);
+    color: var(--fx-muted);
+    pointer-events: none;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+}
+
+.fx-hint kbd {
+    padding: 0.05rem 0.35rem;
+    border: 1px solid var(--fx-line);
+    border-radius: 4px;
+    font: inherit;
+}
+
+.fx-fallback {
+    margin: 0;
+    padding: 2rem;
+    color: var(--fx-muted);
+    font-size: 0.75rem;
+    letter-spacing: 0.1em;
+}
