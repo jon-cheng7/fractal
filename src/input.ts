@@ -3,10 +3,19 @@
 import type { Point, Size } from './view.ts';
 
 export interface InputHandlers {
-    /** Drag the content by this many CSS pixels. */
+    /** Drag the content by this many CSS pixels, applied at once. */
     pan(dx: number, dy: number): void;
-    /** Multiply the scale by `factor` about a point, in CSS pixels. */
-    zoom(factor: number, px: number, py: number): void;
+    /** Like pan, but eased in over a few frames. */
+    nudge(dx: number, dy: number): void;
+    /** Multiply the scale by `factor` about a point in CSS pixels, eased in when `smooth`. */
+    zoom(factor: number, px: number, py: number, smooth: boolean): void;
+    /** The last pointer was lifted. */
+    release(): void;
+    /** A mouse moved over the stage with no button down. */
+    hover(px: number, py: number): void;
+    /** A press and release that barely moved. */
+    tap(px: number, py: number): void;
+    toggleLens(): void;
     reset(): void;
     toggleHud(): void;
     size(): Size;
@@ -34,7 +43,11 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
         return { x: e.clientX - box.left, y: e.clientY - box.top };
     }
 
+    // Where and when a single press began, to tell a tap from a drag.
+    let press: (Point & { t: number }) | null = null;
+
     function onPointerDown(e: PointerEvent): void {
+        press = pointers.size === 0 ? { ...local(e), t: performance.now() } : null;
         el.focus({ preventScroll: true });
         el.setPointerCapture(e.pointerId);
         pointers.set(e.pointerId, local(e));
@@ -42,7 +55,13 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
 
     function onPointerMove(e: PointerEvent): void {
         const before = pointers.get(e.pointerId);
-        if (!before) return;
+        if (!before) {
+            if (pointers.size === 0) {
+                const at = local(e);
+                handlers.hover(at.x, at.y);
+            }
+            return;
+        }
         const after = local(e);
 
         if (pointers.size === 1) {
@@ -61,11 +80,23 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
         handlers.pan(mid1.x - mid0.x, mid1.y - mid0.y);
         const d0 = distance(before, other);
         const d1 = distance(after, other);
-        if (d0 > 0 && d1 > 0) handlers.zoom(d0 / d1, mid1.x, mid1.y);
+        if (d0 > 0 && d1 > 0) handlers.zoom(d0 / d1, mid1.x, mid1.y, false);
     }
 
     function onPointerEnd(e: PointerEvent): void {
         pointers.delete(e.pointerId);
+        if (pointers.size > 0) return;
+        handlers.release();
+        const at = local(e);
+        if (
+            e.type === 'pointerup' &&
+            press &&
+            distance(at, press) < 4 &&
+            performance.now() - press.t < 300
+        ) {
+            handlers.tap(at.x, at.y);
+        }
+        press = null;
     }
 
     function onWheel(e: WheelEvent): void {
@@ -73,7 +104,7 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
         const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
         const rate = e.ctrlKey ? PINCH_RATE : WHEEL_RATE;
         const at = local(e);
-        handlers.zoom(Math.exp(e.deltaY * unit * rate), at.x, at.y);
+        handlers.zoom(Math.exp(e.deltaY * unit * rate), at.x, at.y, true);
     }
 
     function onKeyDown(e: KeyboardEvent): void {
@@ -84,27 +115,31 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
         // Panning the view one way drags the content the other way.
         switch (e.key) {
             case 'ArrowLeft':
-                handlers.pan(step, 0);
+                handlers.nudge(step, 0);
                 break;
             case 'ArrowRight':
-                handlers.pan(-step, 0);
+                handlers.nudge(-step, 0);
                 break;
             case 'ArrowUp':
-                handlers.pan(0, step);
+                handlers.nudge(0, step);
                 break;
             case 'ArrowDown':
-                handlers.pan(0, -step);
+                handlers.nudge(0, -step);
                 break;
             case '+':
             case '=':
-                handlers.zoom(KEY_ZOOM_IN, w / 2, h / 2);
+                handlers.zoom(KEY_ZOOM_IN, w / 2, h / 2, true);
                 break;
             case '-':
             case '_':
-                handlers.zoom(1 / KEY_ZOOM_IN, w / 2, h / 2);
+                handlers.zoom(1 / KEY_ZOOM_IN, w / 2, h / 2, true);
                 break;
             case '0':
                 handlers.reset();
+                break;
+            case 'o':
+            case 'O':
+                handlers.toggleLens();
                 break;
             case 'h':
             case 'H':

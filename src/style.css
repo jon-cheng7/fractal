@@ -124,9 +124,148 @@ body {
     font: inherit;
 }
 
+.fx-controls {
+    position: absolute;
+    top: 0.75rem;
+    right: 0.75rem;
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.4rem;
+    max-width: calc(100% - 1.5rem);
+    cursor: default;
+}
+
+.fx-controls-body {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.35rem;
+    padding: 0.3rem;
+    border: 1px solid var(--fx-line);
+    border-radius: 10px;
+    background: rgba(10, 10, 10, 0.92);
+}
+
+.fx-controls-body[hidden] {
+    display: none;
+}
+
+.fx-btn {
+    min-width: 2rem;
+    height: 2rem;
+    padding: 0 0.7rem;
+    border: 1px solid var(--fx-line);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--fx-fg);
+    font: inherit;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition:
+        border-color 0.15s,
+        color 0.15s,
+        background-color 0.15s;
+}
+
+.fx-controls > .fx-btn {
+    background: rgba(10, 10, 10, 0.92);
+    color: var(--fx-muted);
+}
+
+.fx-btn-zoom {
+    padding: 0;
+    font-size: 1rem;
+}
+
+.fx-btn:hover {
+    border-color: rgba(255, 255, 255, 0.4);
+}
+
+.fx-btn:active {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.fx-btn:focus-visible {
+    outline: 1px solid var(--fx-accent);
+    outline-offset: 1px;
+}
+
+.fx-btn[aria-pressed='true'] {
+    border-color: var(--fx-accent);
+    color: var(--fx-accent);
+}
+
+.fx-lens {
+    position: absolute;
+    right: 0.75rem;
+    bottom: 0.75rem;
+    box-sizing: border-box;
+    width: 15rem;
+    max-width: calc(100% - 1.5rem);
+    padding: 0.7rem;
+    border: 1px solid var(--fx-line);
+    border-radius: 10px;
+    background: rgba(10, 10, 10, 0.92);
+    pointer-events: none;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
+}
+
+.fx-lens[hidden] {
+    display: none;
+}
+
+.fx-lens-title {
+    margin: 0 0 0.5rem;
+    color: var(--fx-accent);
+}
+
+.fx-lens-canvas {
+    display: block;
+    width: 220px;
+    max-width: 100%;
+    aspect-ratio: 1;
+}
+
+.fx-lens-rows {
+    margin: 0.6rem 0 0;
+}
+
+.fx-lens-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 1rem;
+    line-height: 1.7;
+}
+
+.fx-lens-row dt {
+    color: var(--fx-muted);
+}
+
+.fx-lens-row dd {
+    margin: 0;
+    color: var(--fx-fg);
+    text-align: right;
+    overflow-wrap: anywhere;
+}
+
+.fx-lens-note {
+    margin: 0.6rem 0 0;
+    color: var(--fx-muted);
+    line-height: 1.5;
+}
+
 .fx-fallback {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
     margin: 0;
     padding: 2rem;
+    background: rgba(10, 10, 10, 0.92);
+    overflow-wrap: anywhere;
     color: var(--fx-muted);
     font-size: 0.75rem;
     letter-spacing: 0.1em;

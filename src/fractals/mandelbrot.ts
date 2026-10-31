@@ -7,9 +7,9 @@ import fragmentSource from './mandelbrot.frag.glsl?raw';
 import stepSource from './perturb-step.frag.glsl?raw';
 import type { FractalFactory, Frame } from './types.ts';
 
-const BASE_ITER = 120;
+const BASE_ITER = 100;
 const MAX_ITER = 20000;
-const ITER_PER_DOUBLING = 55;
+const ITER_PER_DOUBLING = 32;
 
 const ORBIT_WIDTH = 2048;
 // Compute a longer orbit than needed so zooming in doesn't recompute it every step.
@@ -18,7 +18,7 @@ const ORBIT_HEADROOM = 1.5;
 const REFERENCE_DRIFT = 3;
 
 const MIN_CHUNK = 16;
-const MAX_CHUNK = 4096;
+const MAX_CHUNK = 1024;
 
 export function iterationsFor(zoom: number): number {
     const depth = BASE_ITER + ITER_PER_DOUBLING * Math.log2(Math.max(zoom, 1));
@@ -148,15 +148,16 @@ export const createMandelbrot: FractalFactory = (gl) => {
     let last: Snapshot | null = null;
     let done = 0;
     let chunk = 128;
-    let refreshMs = Infinity;
     let busyMaxIter = 0;
+    let fence: WebGLSync | null = null;
 
-    // Grow the slice per frame while frames keep up with the display, shrink it when they don't.
-    function adaptChunk(frameMs: number | null): void {
-        if (frameMs === null) return;
-        if (frameMs >= 6) refreshMs = Math.min(refreshMs, frameMs);
-        if (frameMs > refreshMs * 1.5) chunk = Math.max(MIN_CHUNK, Math.floor(chunk * 0.6));
-        else if (frameMs < refreshMs * 1.15) chunk = Math.min(MAX_CHUNK, Math.ceil(chunk * 1.4));
+    // True while the GPU is still working through the previous frame. Queueing more only adds lag.
+    function gpuBusy(): boolean {
+        if (!fence) return false;
+        if (gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) return true;
+        gl.deleteSync(fence);
+        fence = null;
+        return false;
     }
 
     function runStep(frame: Frame, maxIter: number, shiftX: number, shiftY: number, reset: boolean): void {
@@ -223,7 +224,11 @@ export const createMandelbrot: FractalFactory = (gl) => {
             const maxIter = iterationsFor(frame.zoom);
             busyMaxIter = maxIter;
             ensureTargets(width, height);
-            adaptChunk(frame.frameMs);
+            // Skip the frame instead of stacking work on a GPU that is still behind.
+            if (gpuBusy()) {
+                chunk = Math.max(MIN_CHUNK, Math.floor(chunk * 0.7));
+                return true;
+            }
 
             const upp = frame.unitsPerPixel;
             const limit = REFERENCE_DRIFT * Math.max(width, height);
@@ -257,6 +262,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
             }
 
             if (done < maxIter) {
+                chunk = Math.min(MAX_CHUNK, Math.ceil(chunk * 1.15));
                 runStep(frame, maxIter, shiftX, shiftY, reset);
                 done += chunk;
             }
@@ -267,6 +273,8 @@ export const createMandelbrot: FractalFactory = (gl) => {
                 committed = last;
             }
             drawColours(frame, null);
+            fence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+            gl.flush();
             return done < maxIter;
         },
         detail() {
@@ -274,6 +282,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
             return done < busyMaxIter ? `${busyMaxIter} · ${percent}%` : `${busyMaxIter}`;
         },
         dispose() {
+            if (fence) gl.deleteSync(fence);
             if (read) destroyTarget(read);
             if (write) destroyTarget(write);
             if (image) destroyTarget(image);

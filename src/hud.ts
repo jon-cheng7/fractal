@@ -52,8 +52,7 @@ export function createHud(parent: HTMLElement, visible: boolean): Hud {
         if (!latest || el.hidden) return;
         zoom.value.textContent = formatZoom(latest.zoom);
         res.value.textContent = `${latest.width}×${latest.height}`;
-        fps.value.textContent =
-            latest.fps === null ? '—' : String(Math.round(latest.fps));
+        fps.value.textContent = latest.fps === null ? '—' : String(Math.round(latest.fps));
         detail.value.textContent = latest.detail;
     }
 
@@ -65,8 +64,7 @@ export function createHud(parent: HTMLElement, visible: boolean): Hud {
         // Throttled with a trailing write, so the last frame after an interaction always lands.
         update(stats) {
             latest = stats;
-            if (timer === 0 && !el.hidden)
-                timer = window.setTimeout(write, REFRESH_MS);
+            if (timer === 0 && !el.hidden) timer = window.setTimeout(write, REFRESH_MS);
         },
     };
 }
@@ -76,7 +74,7 @@ export function createHint(parent: HTMLElement): void {
     el.className = 'fx-hint';
     // Static markup, no user input involved.
     el.innerHTML = matchMedia('(pointer: coarse)').matches
-        ? 'DRAG TO PAN · PINCH TO ZOOM'
-        : 'DRAG TO PAN · SCROLL TO ZOOM · <kbd>H</kbd> STATS · <kbd>0</kbd> RESET';
+        ? 'DRAG TO PAN · PINCH TO ZOOM · TAP A POINT'
+        : 'DRAG TO PAN · SCROLL TO ZOOM · <kbd>O</kbd> ORBIT · <kbd>H</kbd> STATS · <kbd>0</kbd> RESET';
     parent.append(el);
 }
