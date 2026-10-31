@@ -1,18 +1,21 @@
-// Button bar for zoom, reset, the orbit and stats toggles and a copy-link button. Collapsible so it can get out of the way.
+// On-screen chrome: the title with the lessons button, the control bar, and the zoom readout.
 
 export interface ControlActions {
     zoomIn(): void;
     zoomOut(): void;
     reset(): void;
+    toggleLearn(): void;
     toggleOrbit(): void;
+    toggleAxes(): void;
     toggleStats(): void;
     copyLink(): Promise<boolean>;
 }
 
-export type Toggle = 'orbit' | 'stats';
+export type Toggle = 'learn' | 'orbit' | 'axes' | 'stats';
 
 export interface Controls {
     setPressed(name: Toggle, on: boolean): void;
+    setZoom(zoom: number): void;
 }
 
 function button(label: string, title: string, onClick: () => void): HTMLButtonElement {
@@ -21,30 +24,46 @@ function button(label: string, title: string, onClick: () => void): HTMLButtonEl
     el.className = 'fx-btn';
     el.textContent = label;
     el.title = title;
-    el.setAttribute('aria-label', title);
     el.addEventListener('click', onClick);
     return el;
 }
 
+function formatZoom(zoom: number): string {
+    if (zoom < 10) return `${zoom.toFixed(1)}×`;
+    if (zoom < 1e5) return `${Math.round(zoom).toLocaleString('en')}×`;
+    const power = Math.floor(Math.log10(zoom));
+    return `${(zoom / 10 ** power).toFixed(1)} × 10^${power}`;
+}
+
 export function createControls(parent: HTMLElement, actions: ControlActions): Controls {
+    const touch = matchMedia('(pointer: coarse)').matches;
+
+    // Title, top left. The lessons button sits with it so a newcomer finds it first.
+    const brand = document.createElement('div');
+    brand.className = 'fx-brand';
+    brand.dataset.fxUi = '';
+    const name = document.createElement('p');
+    name.className = 'fx-brand-name';
+    name.textContent = 'MANDELBROT';
+    const learn = button('LEARN', 'What am I looking at? (L)', actions.toggleLearn);
+    learn.classList.add('fx-btn-primary');
+    brand.append(name, learn);
+
+    // Everything here ignores pointer input on the fractal; see input.ts.
     const bar = document.createElement('div');
     bar.className = 'fx-controls';
-    // Input ignores events that start inside anything carrying this attribute.
     bar.dataset.fxUi = '';
-
     const body = document.createElement('div');
     body.className = 'fx-controls-body';
 
-    const zoomOut = button('−', 'Zoom out', actions.zoomOut);
-    const zoomIn = button('+', 'Zoom in', actions.zoomIn);
+    const zoomOut = button('−', 'Zoom out (-)', actions.zoomOut);
+    const zoomIn = button('+', 'Zoom in (+)', actions.zoomIn);
     zoomOut.classList.add('fx-btn-zoom');
     zoomIn.classList.add('fx-btn-zoom');
     const reset = button('RESET', 'Back to the whole set (0)', actions.reset);
-    const orbit = button('ORBIT', 'Trace the point under the cursor (O)', actions.toggleOrbit);
-    const stats = button('STATS', 'Show frame stats (H)', actions.toggleStats);
-    orbit.setAttribute('aria-pressed', 'false');
-    stats.setAttribute('aria-pressed', 'false');
-
+    const orbit = button('ORBIT', 'Trace z → z² + c for a point (O)', actions.toggleOrbit);
+    const axes = button('AXES', 'Show the number grid (A)', actions.toggleAxes);
+    const stats = button('STATS', 'Frame stats (H)', actions.toggleStats);
     const link = button('LINK', 'Copy a link to this view', () => {
         void actions.copyLink().then((ok) => {
             link.textContent = ok ? 'COPIED' : 'FAILED';
@@ -53,23 +72,41 @@ export function createControls(parent: HTMLElement, actions: ControlActions): Co
             }, 1400);
         });
     });
+    const toggles: Record<Toggle, HTMLButtonElement> = { learn, orbit, axes, stats };
+    for (const el of Object.values(toggles)) el.setAttribute('aria-pressed', 'false');
 
-    const toggle = button('HIDE', 'Hide the controls', () => {
-        const open = body.hidden;
-        body.hidden = !open;
-        toggle.textContent = open ? 'HIDE' : 'CONTROLS';
-        toggle.setAttribute('aria-expanded', String(open));
+    const hide = button('HIDE', 'Hide the controls', () => {
+        const opening = body.hidden;
+        body.hidden = !opening;
+        hide.textContent = opening ? 'HIDE' : 'CONTROLS';
+        hide.setAttribute('aria-expanded', String(opening));
     });
-    toggle.setAttribute('aria-expanded', 'true');
+    hide.classList.add('fx-controls-hide');
+    hide.setAttribute('aria-expanded', 'true');
 
-    body.append(zoomOut, zoomIn, reset, orbit, stats, link);
-    bar.append(body, toggle);
-    parent.append(bar);
+    body.append(zoomOut, zoomIn, reset, orbit, axes, stats, link);
+    bar.append(body, hide);
 
-    const toggles: Record<Toggle, HTMLButtonElement> = { orbit, stats };
+    // Zoom readout and the one-line how-to, bottom left.
+    const status = document.createElement('p');
+    status.className = 'fx-status';
+    const zoomText = document.createElement('span');
+    zoomText.className = 'fx-status-zoom';
+    const hint = document.createElement('span');
+    hint.className = 'fx-status-hint';
+    hint.textContent = touch ? 'DRAG · PINCH · DOUBLE-TAP' : 'DRAG · SCROLL · DOUBLE-CLICK';
+    status.append(zoomText, hint);
+
+    parent.append(brand, bar, status);
+
+    let shown = '';
     return {
-        setPressed(name, on) {
-            toggles[name].setAttribute('aria-pressed', String(on));
+        setPressed(which, on) {
+            toggles[which].setAttribute('aria-pressed', String(on));
+        },
+        setZoom(zoom) {
+            const text = formatZoom(zoom);
+            if (text !== shown) zoomText.textContent = shown = text;
         },
     };
 }

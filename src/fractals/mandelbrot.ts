@@ -55,6 +55,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
         'u_maxIter',
         'u_chunk',
         'u_reset',
+        'u_bailout',
     ]);
     const show = createPass(gl, fragmentSource, [
         'u_state',
@@ -65,6 +66,9 @@ export const createMandelbrot: FractalFactory = (gl) => {
         'u_alloc',
         'u_ratio',
         'u_shift',
+        'u_build',
+        'u_cap',
+        'u_fill',
     ]);
 
     function createTexture(): WebGLTexture {
@@ -180,6 +184,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
         gl.uniform1i(u.u_maxIter, maxIter);
         gl.uniform1i(u.u_chunk, chunk);
         gl.uniform1i(u.u_reset, reset ? 1 : 0);
+        gl.uniform1f(u.u_bailout, frame.iterCap === null ? 256 : 4);
         step.draw();
         [read, write] = [write, read];
     }
@@ -201,6 +206,9 @@ export const createMandelbrot: FractalFactory = (gl) => {
         gl.uniform1i(u.u_state, 0);
         gl.uniform1i(u.u_image, 1);
         gl.uniform2f(u.u_res, frame.width, frame.height);
+        gl.uniform1i(u.u_build, frame.iterCap === null ? 0 : 1);
+        gl.uniform1f(u.u_cap, frame.iterCap ?? 1);
+        gl.uniform1f(u.u_fill, frame.fillInside);
         const old = into ? null : imageView;
         gl.uniform1i(u.u_useImage, old ? 1 : 0);
         if (old) {
@@ -221,7 +229,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
         name: 'Mandelbrot',
         draw(frame) {
             const { view, width, height } = frame;
-            const maxIter = iterationsFor(frame.zoom);
+            const maxIter = frame.iterCap ?? iterationsFor(frame.zoom);
             busyMaxIter = maxIter;
             ensureTargets(width, height);
             // Skip the frame instead of stacking work on a GPU that is still behind.

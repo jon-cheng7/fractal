@@ -1,4 +1,4 @@
-// Small mono readout of zoom, resolution, frame rate and iterations, plus the key hints. Toggled from the keyboard.
+// Small mono readout of zoom, resolution, frame rate and iterations, toggled from the STATS button or H.
 
 export interface HudStats {
     zoom: number;
@@ -9,6 +9,7 @@ export interface HudStats {
 }
 
 export interface Hud {
+    readonly visible: boolean;
     toggle(): void;
     update(stats: HudStats): void;
 }
@@ -57,6 +58,9 @@ export function createHud(parent: HTMLElement, visible: boolean): Hud {
     }
 
     return {
+        get visible() {
+            return !el.hidden;
+        },
         toggle() {
             el.hidden = !el.hidden;
             write();
@@ -67,14 +71,4 @@ export function createHud(parent: HTMLElement, visible: boolean): Hud {
             if (timer === 0 && !el.hidden) timer = window.setTimeout(write, REFRESH_MS);
         },
     };
-}
-
-export function createHint(parent: HTMLElement): void {
-    const el = document.createElement('p');
-    el.className = 'fx-hint';
-    // Static markup, no user input involved.
-    el.innerHTML = matchMedia('(pointer: coarse)').matches
-        ? 'DRAG TO PAN · PINCH TO ZOOM · TAP A POINT'
-        : 'DRAG TO PAN · SCROLL TO ZOOM · <kbd>O</kbd> ORBIT · <kbd>H</kbd> STATS · <kbd>0</kbd> RESET';
-    parent.append(el);
 }

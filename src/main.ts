@@ -1,11 +1,12 @@
-// Entry point: wires the stage, input, render loop and HUD around the active fractal.
+// Entry point: wires the stage, input, render loop, overlays, lessons and controls around the active fractal.
 
 import './style.css';
 import { createMandelbrot, iterationsFor } from './fractals/mandelbrot.ts';
 import type { Fractal, Frame } from './fractals/types.ts';
 import { createContext } from './gl.ts';
-import { createHint, createHud } from './hud.ts';
+import { createHud } from './hud.ts';
 import { attachInput } from './input.ts';
+import { createLearn } from './learn.ts';
 import { createOrbitLens } from './lenses/orbit.ts';
 import { createLoop } from './loop.ts';
 import {
@@ -16,11 +17,22 @@ import {
     deepZoomLevel,
     fitDeepView,
 } from './math/deep-view.ts';
-import type { DeepView } from './math/deep-view.ts';
-import { format, parse } from './math/fixed.ts';
+import type { DeepView, PlanePoint } from './math/deep-view.ts';
+import { format, fromNumber, mul, parse } from './math/fixed.ts';
+import { createOverlay } from './overlay.ts';
 import { Quality } from './quality.ts';
 import { createStage } from './stage.ts';
+import { createControls } from './ui.ts';
 import type { Size } from './view.ts';
+
+// Pixels times iterations is the GPU's real workload, so deep views drop resolution while moving.
+const WORK_BUDGET = 6e8;
+const WORK_SCALES = [1, 0.7, 0.5, 0.35];
+
+function workScale(css: Size, dpr: number, iterations: number): number {
+    const ideal = Math.sqrt(WORK_BUDGET / (css.w * css.h * dpr * dpr * iterations));
+    return WORK_SCALES.find((s) => s <= ideal) ?? 0.25;
+}
 
 // How long after the last input we keep rendering at reduced resolution.
 const SETTLE_MS = 140;
@@ -31,13 +43,11 @@ const PAN_RATE = 14;
 // After a drag is released the view coasts, losing speed at this rate, and stops below this speed (px/s).
 const COAST_DECAY = 4;
 const COAST_MIN = 8;
+const FLY_MS = 1600;
 
 function showFallback(root: HTMLElement, canvas: HTMLCanvasElement, text: string): void {
     canvas.remove();
-    const message = document.createElement('p');
-    message.className = 'fx-fallback';
-    message.textContent = text.toUpperCase();
-    root.append(message);
+    showError(root, text);
 }
 
 function showError(root: HTMLElement, text: string): void {
@@ -53,12 +63,7 @@ function viewFromHash(size: Size): DeepView | null {
     const level = Number(zoom);
     if (!re || !im || !(level >= 1)) return null;
     try {
-        const fit = fitDeepView(size);
-        return {
-            cx: parse(re),
-            cy: parse(im),
-            scale: Math.max(MIN_SCALE, fit.scale / level),
-        };
+        return { cx: parse(re), cy: parse(im), scale: Math.max(MIN_SCALE, fitDeepView(size).scale / level) };
     } catch {
         return null;
     }
@@ -70,6 +75,10 @@ function writeHash(view: DeepView, size: Size): void {
     const digits = Math.max(10, Math.ceil(Math.log10(zoom)) + 12);
     const text = `#${format(view.cx, digits)},${format(view.cy, digits)},${zoom.toExponential(3)}`;
     history.replaceState(null, '', text);
+}
+
+function easeInOut(t: number): number {
+    return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
 }
 
 function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
@@ -92,16 +101,25 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         return;
     }
 
+    const overlay = createOverlay(root);
     const hud = createHud(root, import.meta.env.DEV);
-    createHint(root);
     const lens = createOrbitLens(root);
-    let pointer: { x: number; y: number } | null = null;
 
     let view: DeepView = viewFromHash(stage.css) ?? fitDeepView(stage.css);
     let lastInput = -Infinity;
     let wasInteracting = false;
     let fps: number | null = null;
     let contextLost = false;
+    let glFault = '';
+    let glChecks = 0;
+
+    // Teaching state: the number grid, a fixed step limit, and a fill that makes the set itself visible.
+    let axes = false;
+    let iterCap: number | null = null;
+    let fill = 0;
+    // The point whose orbit is traced: pinned on the plane, or else wherever the mouse is.
+    let pinned: PlanePoint | null = null;
+    let pointer: { x: number; y: number } | null = null;
 
     // Motion still to be applied: natural log of the zoom factor, a pixel offset, and coasting speed.
     let pendingZoom = 0;
@@ -111,6 +129,7 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
     let coastX = 0;
     let coastY = 0;
     let drag = { t: 0, vx: 0, vy: 0 };
+    let fly: { from: DeepView; to: DeepView; t0: number } | null = null;
 
     // Smooths the drag speed so a flick carries on at the speed the hand was moving.
     function trackDrag(dx: number, dy: number): void {
@@ -124,8 +143,33 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         };
     }
 
+    // The centre moves in step with the scale, so the destination drifts into place instead of
+    // shooting past the screen while the zoom is still catching up.
+    function flyStep(now: number): void {
+        if (!fly) return;
+        const t = Math.min(1, (now - fly.t0) / FLY_MS);
+        const e = easeInOut(t);
+        const s0 = fly.from.scale;
+        const s1 = fly.to.scale;
+        const scale = Math.exp(Math.log(s0) + (Math.log(s1) - Math.log(s0)) * e);
+        const w = fromNumber(s0 === s1 ? e : (s0 - scale) / (s0 - s1));
+        view = {
+            cx: fly.from.cx + mul(fly.to.cx - fly.from.cx, w),
+            cy: fly.from.cy + mul(fly.to.cy - fly.from.cy, w),
+            scale,
+        };
+        if (t >= 1) {
+            view = fly.to;
+            fly = null;
+        }
+    }
+
     /** Applies this frame's share of any eased motion. Returns true while something is still moving. */
-    function glide(dt: number): boolean {
+    function glide(dt: number, now: number): boolean {
+        if (fly) {
+            flyStep(now);
+            return true;
+        }
         let moving = false;
 
         if (pendingZoom !== 0) {
@@ -162,12 +206,25 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         return moving;
     }
 
-    // Points the lens at whatever is under the cursor now; the view may have moved beneath it.
-    function syncLens(): void {
-        if (!lens.enabled || !pointer) return;
-        const at = deepScreenToPlane(view, stage.css, pointer.x, pointer.y);
+    function orbitPoint(): PlanePoint | null {
+        if (pinned) return pinned;
+        if (!pointer) return null;
+        return deepScreenToPlane(view, stage.css, pointer.x, pointer.y);
+    }
+
+    // Re-traces the orbit and redraws the axes and path over the fractal for the current view.
+    function syncOverlay(): void {
         const zoom = deepZoomLevel(view, stage.css);
-        lens.setPoint(at.x, at.y, iterationsFor(zoom), zoom);
+        const c = lens.enabled ? orbitPoint() : null;
+        if (c) lens.setPoint(c.x, c.y, iterationsFor(zoom), zoom, pinned !== null);
+        const path = lens.orbit;
+        overlay.draw({
+            view,
+            size: stage.css,
+            zoom,
+            axes,
+            orbit: c && path ? { c, path } : null,
+        });
     }
 
     function frameInfo(frameMs: number | null): Frame {
@@ -179,14 +236,15 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             unitsPerPixel: (view.scale * css.w) / buffer.w,
             zoom: deepZoomLevel(view, css),
             frameMs,
+            iterCap,
+            fillInside: fill,
         };
     }
 
     function tick(dt: number, now: number, frameMs: number | null): void {
         if (contextLost) return;
         // Coasting and easing count as interaction, so the view stays in its fast mode until it stops.
-        if (glide(dt)) lastInput = now;
-        syncLens();
+        if (glide(dt, now)) lastInput = now;
         const interacting = now - lastInput < SETTLE_MS;
 
         if (interacting && frameMs !== null) {
@@ -196,7 +254,10 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         }
 
         // Low resolution while moving, then full resolution once input settles.
-        stage.setRenderScale(interacting ? quality.scale : 1);
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const iterations = iterCap ?? iterationsFor(deepZoomLevel(view, stage.css));
+        const work = workScale(stage.css, dpr, iterations);
+        stage.setRenderScale(interacting ? Math.min(quality.scale, work) : 1);
         const info = frameInfo(frameMs);
         let refining: boolean;
         try {
@@ -207,16 +268,21 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             showError(root, error instanceof Error ? error.message : String(error));
             return;
         }
-        // GL reports most failures silently, so surface them in the stats panel.
-        const glError = ctx.getError();
+        syncOverlay();
+        controls.setZoom(info.zoom);
+
+        // GL reports most failures silently. getError stalls the pipeline, so only the first frames are checked.
+        if (!glFault && glChecks < 3) {
+            glChecks++;
+            const code = ctx.getError();
+            if (code !== ctx.NO_ERROR) glFault = ` · GL 0x${code.toString(16)}`;
+        }
         hud.update({
             zoom: info.zoom,
             width: info.width,
             height: info.height,
             fps,
-            detail:
-                fractal.detail(info) +
-                (glError === ctx.NO_ERROR ? '' : ` · GL 0x${glError.toString(16)}`),
+            detail: fractal.detail(info) + glFault,
         });
 
         if (wasInteracting && !interacting) writeHash(view, stage.css);
@@ -227,9 +293,99 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
     const loop = createLoop(tick);
 
     function touch(): void {
+        fly = null;
         lastInput = performance.now();
         loop.request();
     }
+
+    function zoomBy(factor: number, px = stage.css.w / 2, py = stage.css.h / 2): void {
+        anchor = { x: px, y: py };
+        pendingZoom += Math.log(factor);
+        touch();
+    }
+
+    function stopMotion(): void {
+        pendingZoom = 0;
+        pendingX = 0;
+        pendingY = 0;
+        coastX = 0;
+        coastY = 0;
+    }
+
+    function resetView(): void {
+        stopMotion();
+        view = fitDeepView(stage.css);
+        touch();
+    }
+
+    function flyTo(re: string, im: string, zoom: number): void {
+        stopMotion();
+        const to = { cx: parse(re), cy: parse(im), scale: fitDeepView(stage.css).scale / zoom };
+        fly = { from: view, to, t0: performance.now() };
+        lastInput = performance.now();
+        loop.request();
+    }
+
+    function setOrbit(on: boolean, at: PlanePoint | null): void {
+        lens.setEnabled(on);
+        pinned = on ? at : null;
+        controls.setPressed('orbit', on);
+        syncOverlay();
+    }
+
+    function setAxes(on: boolean): void {
+        axes = on;
+        controls.setPressed('axes', on);
+        syncOverlay();
+    }
+
+    function toggleStats(): void {
+        hud.toggle();
+        controls.setPressed('stats', hud.visible);
+    }
+
+    async function copyLink(): Promise<boolean> {
+        writeHash(view, stage.css);
+        try {
+            await navigator.clipboard.writeText(location.href);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    const controls = createControls(root, {
+        zoomIn: () => zoomBy(0.5),
+        zoomOut: () => zoomBy(2),
+        reset: resetView,
+        toggleLearn: () => learn.toggle(),
+        toggleOrbit: () => setOrbit(!lens.enabled, null),
+        toggleAxes: () => setAxes(!axes),
+        toggleStats,
+        copyLink,
+    });
+    controls.setPressed('stats', hud.visible);
+
+    const learn = createLearn(
+        root,
+        {
+            reset: resetView,
+            flyTo,
+            setAxes,
+            setOrbit(on, re, im) {
+                setOrbit(on, re && im ? { x: parse(re), y: parse(im) } : null);
+            },
+            setCap(cap) {
+                iterCap = cap;
+                loop.request();
+            },
+            setFill(alpha) {
+                fill = alpha;
+                loop.request();
+            },
+        },
+        (open) => controls.setPressed('learn', open),
+    );
 
     attachInput(root, {
         pan(dx, dy) {
@@ -261,28 +417,22 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
                 touch();
             }
         },
-        reset() {
-            pendingZoom = 0;
-            pendingX = 0;
-            pendingY = 0;
-            coastX = 0;
-            coastY = 0;
-            view = fitDeepView(stage.css);
-            touch();
-        },
+        reset: resetView,
         hover(px, py) {
             pointer = { x: px, y: py };
-            syncLens();
+            if (lens.enabled && !pinned) syncOverlay();
         },
         tap(px, py) {
             pointer = { x: px, y: py };
-            syncLens();
+            if (!lens.enabled) return;
+            pinned = deepScreenToPlane(view, stage.css, px, py);
+            syncOverlay();
         },
-        toggleLens() {
-            lens.toggle();
-            syncLens();
-        },
-        toggleHud: () => hud.toggle(),
+        doubleTap: (px, py) => zoomBy(0.4, px, py),
+        toggleLens: () => setOrbit(!lens.enabled, null),
+        toggleAxes: () => setAxes(!axes),
+        toggleLearn: () => learn.toggle(),
+        toggleHud: toggleStats,
         size: () => stage.css,
     });
 
@@ -301,6 +451,18 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         loop.request();
     });
 
+    // Inside a host page (joncheng.ca), report the pointer so the host's custom cursor can follow it over this frame.
+    // Only the position is sent, so any parent origin is fine.
+    if (window.parent !== window) {
+        window.addEventListener(
+            'pointermove',
+            (e) => window.parent.postMessage({ type: 'pointer', x: e.clientX, y: e.clientY }, '*'),
+            { passive: true },
+        );
+    }
+
+    // First visit: open the lessons, unless the link points somewhere specific.
+    if (!location.hash) learn.toggle();
     loop.request();
 }
 

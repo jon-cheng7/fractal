@@ -3,10 +3,15 @@
 :root {
     --fx-bg: #0a0a0a;
     --fx-fg: #e5e5e5;
-    --fx-muted: #888;
+    --fx-muted: #8a8a8a;
     --fx-line: rgba(255, 255, 255, 0.15);
+    --fx-line-strong: rgba(255, 255, 255, 0.4);
+    --fx-panel: rgba(10, 10, 10, 0.92);
     --fx-accent: #c5fb45;
+    --fx-cyan: #45f0fb;
     --fx-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --fx-gap: 0.75rem;
+    --fx-radius: 10px;
     color-scheme: dark;
 }
 
@@ -32,6 +37,7 @@ body {
         24px 24px;
     color: var(--fx-fg);
     font-family: var(--fx-mono);
+    -webkit-tap-highlight-color: transparent;
 }
 
 .fx-stage {
@@ -41,7 +47,11 @@ body {
     overflow: hidden;
     cursor: grab;
     touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
     outline: none;
+    font-size: 0.7rem;
+    letter-spacing: 0.1em;
 }
 
 .fx-stage:active {
@@ -53,26 +63,185 @@ body {
     outline-offset: -1px;
 }
 
-.fx-canvas {
+.fx-canvas,
+.fx-overlay {
+    position: absolute;
+    inset: 0;
     display: block;
     width: 100%;
     height: 100%;
 }
 
-/* No backdrop blur here: it would be recomputed under a canvas that redraws every frame. */
+.fx-overlay {
+    pointer-events: none;
+}
+
+/* Shared panel look. No backdrop blur: it would be recomputed under a canvas that redraws every frame. */
+.fx-hud,
+.fx-lens,
+.fx-learn,
+.fx-status,
+.fx-controls-body,
+.fx-controls > .fx-btn,
+.fx-brand {
+    border: 1px solid var(--fx-line);
+    border-radius: var(--fx-radius);
+    background: var(--fx-panel);
+}
+
+/* Buttons */
+
+.fx-btn {
+    min-width: 2.25rem;
+    height: 2.25rem;
+    padding: 0 0.8rem;
+    border: 1px solid var(--fx-line);
+    border-radius: 7px;
+    background: transparent;
+    color: var(--fx-fg);
+    font: inherit;
+    letter-spacing: 0.1em;
+    white-space: nowrap;
+    cursor: pointer;
+    touch-action: manipulation;
+    transition:
+        border-color 0.15s,
+        color 0.15s,
+        background-color 0.15s;
+}
+
+.fx-btn:hover {
+    border-color: var(--fx-line-strong);
+}
+
+.fx-btn:active {
+    background-color: rgba(255, 255, 255, 0.08);
+}
+
+.fx-btn:focus-visible {
+    outline: 1px solid var(--fx-accent);
+    outline-offset: 1px;
+}
+
+.fx-btn:disabled {
+    opacity: 0.35;
+    cursor: default;
+}
+
+.fx-btn[aria-pressed='true'] {
+    border-color: var(--fx-accent);
+    color: var(--fx-accent);
+}
+
+.fx-btn-zoom {
+    padding: 0;
+    font-size: 1.05rem;
+    letter-spacing: 0;
+}
+
+.fx-btn-primary {
+    border-color: var(--fx-accent);
+    background: var(--fx-accent);
+    color: var(--fx-bg);
+}
+
+.fx-btn-primary:hover {
+    border-color: var(--fx-accent);
+    background: #d4fc6c;
+}
+
+.fx-btn-primary[aria-pressed='true'] {
+    background: transparent;
+    color: var(--fx-accent);
+}
+
+.fx-btn-quiet {
+    height: 1.75rem;
+    border-color: transparent;
+    color: var(--fx-muted);
+}
+
+/* Title, top left */
+
+.fx-brand {
+    position: absolute;
+    top: var(--fx-gap);
+    left: var(--fx-gap);
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.3rem 0.3rem 0.3rem 0.85rem;
+    cursor: default;
+}
+
+.fx-brand-name {
+    margin: 0;
+    color: var(--fx-fg);
+    letter-spacing: 0.2em;
+}
+
+/* Control bar, top right */
+
+.fx-controls {
+    position: absolute;
+    top: var(--fx-gap);
+    right: var(--fx-gap);
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+    max-width: calc(100% - 2 * var(--fx-gap));
+    cursor: default;
+}
+
+.fx-controls-body {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.35rem;
+    padding: 0.3rem;
+}
+
+.fx-controls-body[hidden] {
+    display: none;
+}
+
+.fx-controls > .fx-btn {
+    height: 2.9rem;
+    color: var(--fx-muted);
+}
+
+/* Zoom readout, bottom left */
+
+.fx-status {
+    position: absolute;
+    left: var(--fx-gap);
+    bottom: var(--fx-gap);
+    display: flex;
+    gap: 1rem;
+    margin: 0;
+    padding: 0.5rem 0.8rem;
+    pointer-events: none;
+}
+
+.fx-status-zoom {
+    color: var(--fx-accent);
+    font-variant-numeric: tabular-nums;
+}
+
+.fx-status-hint {
+    color: var(--fx-muted);
+}
+
+/* Stats */
+
 .fx-hud {
     position: absolute;
-    top: 0.75rem;
-    left: 0.75rem;
+    top: calc(var(--fx-gap) + 3.6rem);
+    left: var(--fx-gap);
     margin: 0;
     padding: 0.6rem 0.8rem;
     min-width: 8.5rem;
-    border: 1px solid var(--fx-line);
-    border-radius: 10px;
-    background: rgba(10, 10, 10, 0.92);
     pointer-events: none;
-    font-size: 0.7rem;
-    letter-spacing: 0.1em;
     line-height: 1.7;
 }
 
@@ -100,117 +269,138 @@ body {
     color: var(--fx-accent);
 }
 
-.fx-hint {
+/* Lessons, left */
+
+.fx-learn {
     position: absolute;
-    left: 0.75rem;
-    bottom: 0.75rem;
-    margin: 0;
-    padding: 0.45rem 0.7rem;
-    max-width: calc(100% - 1.5rem);
+    left: var(--fx-gap);
+    bottom: calc(var(--fx-gap) + 3rem);
     box-sizing: border-box;
-    border: 1px solid var(--fx-line);
-    border-radius: 10px;
-    background: rgba(10, 10, 10, 0.92);
-    color: var(--fx-muted);
-    pointer-events: none;
-    font-size: 0.7rem;
-    letter-spacing: 0.1em;
-}
-
-.fx-hint kbd {
-    padding: 0.05rem 0.35rem;
-    border: 1px solid var(--fx-line);
-    border-radius: 4px;
-    font: inherit;
-}
-
-.fx-controls {
-    position: absolute;
-    top: 0.75rem;
-    right: 0.75rem;
-    display: flex;
-    align-items: center;
-    justify-content: flex-end;
-    gap: 0.4rem;
-    max-width: calc(100% - 1.5rem);
+    width: 24rem;
+    max-width: calc(100% - 2 * var(--fx-gap));
+    max-height: calc(100% - 8rem);
+    overflow-y: auto;
+    padding: 0.9rem 1rem 1rem;
     cursor: default;
+    touch-action: pan-y;
 }
 
-.fx-controls-body {
-    display: flex;
-    flex-wrap: wrap;
-    justify-content: flex-end;
-    gap: 0.35rem;
-    padding: 0.3rem;
-    border: 1px solid var(--fx-line);
-    border-radius: 10px;
-    background: rgba(10, 10, 10, 0.92);
-}
-
-.fx-controls-body[hidden] {
+.fx-learn[hidden] {
     display: none;
 }
 
-.fx-btn {
-    min-width: 2rem;
-    height: 2rem;
-    padding: 0 0.7rem;
-    border: 1px solid var(--fx-line);
-    border-radius: 7px;
-    background: transparent;
-    color: var(--fx-fg);
-    font: inherit;
-    font-size: 0.7rem;
-    letter-spacing: 0.1em;
-    cursor: pointer;
-    transition:
-        border-color 0.15s,
-        color 0.15s,
-        background-color 0.15s;
+.fx-learn-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: -0.3rem -0.4rem 0.2rem 0;
 }
 
-.fx-controls > .fx-btn {
-    background: rgba(10, 10, 10, 0.92);
+.fx-learn-count {
     color: var(--fx-muted);
 }
 
-.fx-btn-zoom {
-    padding: 0;
-    font-size: 1rem;
-}
-
-.fx-btn:hover {
-    border-color: rgba(255, 255, 255, 0.4);
-}
-
-.fx-btn:active {
-    background-color: rgba(255, 255, 255, 0.08);
-}
-
-.fx-btn:focus-visible {
-    outline: 1px solid var(--fx-accent);
-    outline-offset: 1px;
-}
-
-.fx-btn[aria-pressed='true'] {
-    border-color: var(--fx-accent);
+.fx-learn-title {
+    margin: 0 0 0.6rem;
     color: var(--fx-accent);
+    font: inherit;
+    font-size: 0.85rem;
+    letter-spacing: 0.12em;
 }
+
+.fx-learn-body {
+    margin: 0;
+    color: var(--fx-fg);
+    font-size: 0.8rem;
+    letter-spacing: 0.02em;
+    line-height: 1.6;
+}
+
+.fx-learn-try {
+    margin: 0.8rem 0 0;
+    padding-left: 0.6rem;
+    border-left: 2px solid var(--fx-cyan);
+    color: var(--fx-cyan);
+    line-height: 1.5;
+}
+
+.fx-learn-try[hidden],
+.fx-learn-build[hidden] {
+    display: none;
+}
+
+.fx-learn-build {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-top: 0.9rem;
+}
+
+.fx-learn-steps {
+    min-width: 5.5rem;
+    color: var(--fx-accent);
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.fx-slider {
+    flex: 1;
+    min-width: 0;
+    height: 2.25rem;
+    margin: 0;
+    accent-color: var(--fx-accent);
+    cursor: pointer;
+    touch-action: none;
+}
+
+.fx-learn-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+
+.fx-learn-dots {
+    display: flex;
+    gap: 0.1rem;
+}
+
+/* The visible dot is small; the button around it is a comfortable target. */
+.fx-learn-dot {
+    width: 1.1rem;
+    height: 1.75rem;
+    padding: 0;
+    border: 0;
+    background: none;
+    cursor: pointer;
+}
+
+.fx-learn-dot::before {
+    content: '';
+    display: block;
+    width: 6px;
+    height: 6px;
+    margin: auto;
+    border-radius: 50%;
+    background: var(--fx-line-strong);
+}
+
+.fx-learn-dot[aria-current='true']::before {
+    background: var(--fx-accent);
+}
+
+/* Orbit lens, bottom right */
 
 .fx-lens {
     position: absolute;
-    right: 0.75rem;
-    bottom: 0.75rem;
+    right: var(--fx-gap);
+    bottom: var(--fx-gap);
     box-sizing: border-box;
     width: 15rem;
-    max-width: calc(100% - 1.5rem);
+    max-width: calc(100% - 2 * var(--fx-gap));
     padding: 0.7rem;
-    border: 1px solid var(--fx-line);
-    border-radius: 10px;
-    background: rgba(10, 10, 10, 0.92);
     pointer-events: none;
-    font-size: 0.7rem;
-    letter-spacing: 0.1em;
 }
 
 .fx-lens[hidden] {
@@ -264,9 +454,93 @@ body {
     right: 0;
     margin: 0;
     padding: 2rem;
-    background: rgba(10, 10, 10, 0.92);
+    background: var(--fx-panel);
     overflow-wrap: anywhere;
     color: var(--fx-muted);
     font-size: 0.75rem;
-    letter-spacing: 0.1em;
+}
+
+/* Phones: controls become a toolbar along the bottom, lessons a sheet above it, the lens a strip at the top. */
+@media (max-width: 640px) {
+    .fx-stage {
+        --fx-gap: 0.5rem;
+        --fx-bar: calc(3.6rem + env(safe-area-inset-bottom));
+    }
+
+    .fx-brand {
+        top: calc(var(--fx-gap) + env(safe-area-inset-top));
+    }
+
+    .fx-controls {
+        top: auto;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        max-width: none;
+    }
+
+    .fx-controls-body {
+        flex-wrap: nowrap;
+        justify-content: space-between;
+        width: 100%;
+        overflow-x: auto;
+        padding: 0.4rem 0.5rem calc(0.4rem + env(safe-area-inset-bottom));
+        border-width: 1px 0 0;
+        border-radius: 0;
+        scrollbar-width: none;
+    }
+
+    .fx-controls-hide {
+        display: none;
+    }
+
+    .fx-btn {
+        min-width: 2.75rem;
+        height: 2.75rem;
+        padding: 0 0.7rem;
+    }
+
+    .fx-status {
+        top: calc(var(--fx-gap) + env(safe-area-inset-top));
+        right: var(--fx-gap);
+        left: auto;
+        bottom: auto;
+        padding: 0.85rem 0.7rem;
+    }
+
+    .fx-status-hint {
+        display: none;
+    }
+
+    .fx-learn {
+        left: var(--fx-gap);
+        right: var(--fx-gap);
+        bottom: calc(var(--fx-bar) + var(--fx-gap));
+        width: auto;
+        max-width: none;
+        max-height: 48%;
+    }
+
+    .fx-lens {
+        top: calc(var(--fx-gap) + 3.6rem + env(safe-area-inset-top));
+        right: var(--fx-gap);
+        bottom: auto;
+        left: var(--fx-gap);
+        width: auto;
+        padding: 0.5rem 0.7rem;
+    }
+
+    /* On a phone the path is drawn on the fractal itself, so the inset plot is redundant. */
+    .fx-lens-canvas,
+    .fx-lens-note {
+        display: none;
+    }
+
+    .fx-lens-rows {
+        margin: 0;
+    }
+
+    .fx-hud {
+        top: calc(var(--fx-gap) + 3.6rem + env(safe-area-inset-top));
+    }
 }

@@ -15,10 +15,11 @@ uniform int u_orbitLen;
 uniform int u_maxIter;
 uniform int u_chunk;
 uniform bool u_reset;
+// Squared escape radius: large for smooth colouring, 4 (radius 2) when teaching how the set is built.
+uniform float u_bailout;
 
 out vec4 o_state;
 
-const float BAILOUT = 256.0;
 
 vec2 reference(int m) {
     int width = textureSize(u_orbit, 0).x;
@@ -53,7 +54,7 @@ void main() {
         vec2 z = Zm + u_upp * e;
         float z2 = dot(z, z);
         // Written so NaN and infinity count as escaped.
-        if (!(z2 < BAILOUT)) {
+        if (!(z2 < u_bailout)) {
             float nu = (z2 > 1.0 && z2 < 3.0e38) ? float(n) - log2(0.5 * log(z2)) : float(n);
             o_state = vec4(e, float(m), -(nu + 1.0));
             return;

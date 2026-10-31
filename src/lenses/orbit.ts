@@ -2,6 +2,7 @@
 
 import { format, toNumber } from '../math/fixed.ts';
 import { computeOrbit } from '../math/orbit.ts';
+import type { Orbit } from '../math/orbit.ts';
 
 const SIZE = 220;
 // The inset shows this far from the origin in each direction; the escape circle has radius 2.
@@ -14,9 +15,11 @@ const MUTED = '#888';
 
 export interface OrbitLens {
     readonly enabled: boolean;
-    toggle(): void;
+    /** The orbit last traced, while the lens is on. */
+    readonly orbit: Orbit | null;
+    setEnabled(on: boolean): void;
     /** The point c under the cursor. Does nothing while the lens is off or the point hasn't changed. */
-    setPoint(cx: bigint, cy: bigint, maxIter: number, zoom: number): void;
+    setPoint(cx: bigint, cy: bigint, maxIter: number, zoom: number, pinned: boolean): void;
 }
 
 function row(label: string): { root: HTMLElement; value: HTMLElement } {
@@ -47,7 +50,10 @@ export function createOrbitLens(parent: HTMLElement): OrbitLens {
 
     const title = document.createElement('p');
     title.className = 'fx-lens-title';
-    title.textContent = 'ORBIT OF THE POINT UNDER THE CURSOR';
+    const touch = matchMedia('(pointer: coarse)').matches;
+    const following = touch ? 'TAP A POINT TO TRACE IT' : 'FOLLOWING THE CURSOR · CLICK TO PIN';
+    const pinnedText = touch ? 'PINNED · TAP ELSEWHERE TO MOVE' : 'PINNED · CLICK ELSEWHERE TO MOVE';
+    title.textContent = following;
 
     const canvas = document.createElement('canvas');
     canvas.className = 'fx-lens-canvas';
@@ -140,23 +146,31 @@ export function createOrbitLens(parent: HTMLElement): OrbitLens {
     let enabled = false;
     let lastX: bigint | null = null;
     let lastY: bigint | null = null;
+    let orbit: Orbit | null = null;
 
     return {
         get enabled() {
             return enabled;
         },
-        toggle() {
-            enabled = !enabled;
+        get orbit() {
+            return enabled ? orbit : null;
+        },
+        setEnabled(on) {
+            enabled = on;
             panel.hidden = !enabled;
             lastX = null;
             lastY = null;
+            orbit = null;
+            title.textContent = following;
         },
-        setPoint(cx, cy, maxIter, zoom) {
-            if (!enabled || (cx === lastX && cy === lastY)) return;
+        setPoint(cx, cy, maxIter, zoom, pinned) {
+            if (!enabled) return;
+            title.textContent = pinned ? pinnedText : following;
+            if (cx === lastX && cy === lastY) return;
             lastX = cx;
             lastY = cy;
 
-            const orbit = computeOrbit(cx, cy, maxIter);
+            orbit = computeOrbit(cx, cy, maxIter);
             const digits = Math.min(30, Math.max(6, Math.ceil(Math.log10(zoom)) + 5));
             re.value.textContent = format(cx, digits);
             im.value.textContent = format(cy, digits);

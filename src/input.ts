@@ -15,7 +15,11 @@ export interface InputHandlers {
     hover(px: number, py: number): void;
     /** A press and release that barely moved. */
     tap(px: number, py: number): void;
+    /** Two taps in quick succession at about the same spot. */
+    doubleTap(px: number, py: number): void;
     toggleLens(): void;
+    toggleAxes(): void;
+    toggleLearn(): void;
     reset(): void;
     toggleHud(): void;
     size(): Size;
@@ -26,6 +30,8 @@ const KEY_ZOOM_IN = 0.8;
 const WHEEL_RATE = 0.0015;
 // Trackpad pinch arrives as ctrl+wheel with much smaller deltas.
 const PINCH_RATE = 0.01;
+const DOUBLE_TAP_MS = 320;
+const DOUBLE_TAP_PX = 30;
 
 function distance(a: Point, b: Point): number {
     return Math.hypot(a.x - b.x, a.y - b.y);
@@ -45,8 +51,15 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
 
     // Where and when a single press began, to tell a tap from a drag.
     let press: (Point & { t: number }) | null = null;
+    let lastTap: (Point & { t: number }) | null = null;
+
+    // Buttons and overlays mark themselves, so pressing them doesn't also pan the view.
+    function onUi(e: Event): boolean {
+        return e.target instanceof Element && e.target.closest('[data-fx-ui]') !== null;
+    }
 
     function onPointerDown(e: PointerEvent): void {
+        if (onUi(e)) return;
         press = pointers.size === 0 ? { ...local(e), t: performance.now() } : null;
         el.focus({ preventScroll: true });
         el.setPointerCapture(e.pointerId);
@@ -56,7 +69,7 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
     function onPointerMove(e: PointerEvent): void {
         const before = pointers.get(e.pointerId);
         if (!before) {
-            if (pointers.size === 0) {
+            if (pointers.size === 0 && !onUi(e)) {
                 const at = local(e);
                 handlers.hover(at.x, at.y);
             }
@@ -94,12 +107,20 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
             distance(at, press) < 4 &&
             performance.now() - press.t < 300
         ) {
-            handlers.tap(at.x, at.y);
+            const now = performance.now();
+            if (lastTap && now - lastTap.t < DOUBLE_TAP_MS && distance(at, lastTap) < DOUBLE_TAP_PX) {
+                lastTap = null;
+                handlers.doubleTap(at.x, at.y);
+            } else {
+                lastTap = { ...at, t: now };
+                handlers.tap(at.x, at.y);
+            }
         }
         press = null;
     }
 
     function onWheel(e: WheelEvent): void {
+        if (onUi(e)) return;
         e.preventDefault();
         const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 400 : 1;
         const rate = e.ctrlKey ? PINCH_RATE : WHEEL_RATE;
@@ -109,6 +130,8 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
 
     function onKeyDown(e: KeyboardEvent): void {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
+        // Sliders and buttons in the panels use these keys themselves.
+        if (e.target instanceof HTMLInputElement) return;
         const step = e.shiftKey ? KEY_PAN_PX * 3 : KEY_PAN_PX;
         const { w, h } = handlers.size();
 
@@ -140,6 +163,14 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
             case 'o':
             case 'O':
                 handlers.toggleLens();
+                break;
+            case 'a':
+            case 'A':
+                handlers.toggleAxes();
+                break;
+            case 'l':
+            case 'L':
+                handlers.toggleLearn();
                 break;
             case 'h':
             case 'H':

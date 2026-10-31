@@ -11,14 +11,18 @@ export interface Frame {
     unitsPerPixel: number;
     /** Zoom relative to the fitted view. */
     zoom: number;
-    /** Time since the previous frame when frames run back to back, otherwise null. */
+    /** Time since the previous frame in a continuous run, or null after a pause. */
     frameMs: number | null;
+    /** A fixed step limit for teaching how the set is built, or null for the automatic one. */
+    iterCap: number | null;
+    /** Opacity of a fill inside the set, 0 for none. */
+    fillInside: number;
 }
 
 export interface Fractal {
     readonly id: string;
     readonly name: string;
-    /** Returns true while the image is still refining and another frame is needed. */
+    /** Draws one frame. Returns true while more frames are needed to finish refining the image. */
     draw(frame: Frame): boolean;
     /** One short line for the HUD, such as the iteration count. */
     detail(frame: Frame): string;
