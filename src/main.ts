@@ -10,6 +10,7 @@ import { createLearn } from './learn.ts';
 import { createOrbitLens } from './lenses/orbit.ts';
 import { createLoop } from './loop.ts';
 import {
+    MAX_SCALE,
     MIN_SCALE,
     deepPanBy,
     deepScreenToPlane,
@@ -41,8 +42,8 @@ const SETTLE_MS = 140;
 const ZOOM_RATE = 12;
 const PAN_RATE = 14;
 // After a drag is released the view coasts, losing speed at this rate, and stops below this speed (px/s).
-const COAST_DECAY = 4;
-const COAST_MIN = 8;
+const COAST_DECAY = 7;
+const COAST_MIN = 20;
 const FLY_MS = 1600;
 
 function showFallback(root: HTMLElement, canvas: HTMLCanvasElement, text: string): void {
@@ -130,6 +131,8 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
     let coastY = 0;
     let drag = { t: 0, vx: 0, vy: 0 };
     let fly: { from: DeepView; to: DeepView; t0: number } | null = null;
+    // The plane point under the fingers and the scale when the current pinch began.
+    let pinchFrom: { at: PlanePoint; scale: number } | null = null;
 
     // Smooths the drag speed so a flick carries on at the speed the hand was moving.
     function trackDrag(dx: number, dy: number): void {
@@ -407,6 +410,19 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             } else {
                 view = deepZoomAt(view, stage.css, px, py, factor);
             }
+            touch();
+        },
+        pinchStart(px, py) {
+            stopMotion();
+            pinchFrom = { at: deepScreenToPlane(view, stage.css, px, py), scale: view.scale };
+            touch();
+        },
+        // Keeps the point that started under the fingers under them, at the scale their spread asks for.
+        pinch(px, py, spread) {
+            if (!pinchFrom) return;
+            const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinchFrom.scale / spread));
+            const offset = deepScreenToPlane({ cx: 0n, cy: 0n, scale }, stage.css, px, py);
+            view = { cx: pinchFrom.at.x - offset.x, cy: pinchFrom.at.y - offset.y, scale };
             touch();
         },
         release() {

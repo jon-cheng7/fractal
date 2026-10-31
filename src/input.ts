@@ -9,6 +9,10 @@ export interface InputHandlers {
     nudge(dx: number, dy: number): void;
     /** Multiply the scale by `factor` about a point in CSS pixels, eased in when `smooth`. */
     zoom(factor: number, px: number, py: number, smooth: boolean): void;
+    /** Two fingers went down at this midpoint. */
+    pinchStart(px: number, py: number): void;
+    /** The fingers' midpoint now, and their spread relative to when the pinch started. */
+    pinch(px: number, py: number, spread: number): void;
     /** The last pointer was lifted. */
     release(): void;
     /** A mouse moved over the stage with no button down. */
@@ -52,6 +56,9 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
     // Where and when a single press began, to tell a tap from a drag.
     let press: (Point & { t: number }) | null = null;
     let lastTap: (Point & { t: number }) | null = null;
+    // Set once a second finger lands, until every finger is up. `spread` is the finger distance when the pinch began.
+    let pinched = false;
+    let spread = 0;
 
     // Buttons and overlays mark themselves, so pressing them doesn't also pan the view.
     function onUi(e: Event): boolean {
@@ -64,6 +71,10 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
         el.focus({ preventScroll: true });
         el.setPointerCapture(e.pointerId);
         pointers.set(e.pointerId, local(e));
+        if (pointers.size === 2) {
+            pinched = true;
+            spread = 0;
+        }
     }
 
     function onPointerMove(e: PointerEvent): void {
@@ -76,30 +87,41 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
             return;
         }
         const after = local(e);
+        pointers.set(e.pointerId, after);
 
         if (pointers.size === 1) {
-            handlers.pan(after.x - before.x, after.y - before.y);
+            // A finger left over from a pinch shouldn't suddenly start dragging the view.
+            if (!pinched) handlers.pan(after.x - before.x, after.y - before.y);
         } else if (pointers.size === 2) {
-            const other = [...pointers].find(([id]) => id !== e.pointerId)?.[1];
-            if (other) pinch(before, after, other);
+            const [a, b] = [...pointers.values()];
+            if (a && b) pinchMove(a, b);
         }
-        pointers.set(e.pointerId, after);
     }
 
-    // Pan by the midpoint's travel first so the pinch centre stays under the fingers, then zoom about it.
-    function pinch(before: Point, after: Point, other: Point): void {
-        const mid0 = midpoint(before, other);
-        const mid1 = midpoint(after, other);
-        handlers.pan(mid1.x - mid0.x, mid1.y - mid0.y);
-        const d0 = distance(before, other);
-        const d1 = distance(after, other);
-        if (d0 > 0 && d1 > 0) handlers.zoom(d0 / d1, mid1.x, mid1.y, false);
+    // Measured from the start of the pinch rather than event to event: the two fingers report in turn,
+    // and adding up those half-steps made the view slide sideways while zooming.
+    function pinchMove(a: Point, b: Point): void {
+        const mid = midpoint(a, b);
+        const d = distance(a, b);
+        if (spread === 0) {
+            spread = d;
+            handlers.pinchStart(mid.x, mid.y);
+        }
+        if (spread > 0 && d > 0) handlers.pinch(mid.x, mid.y, d / spread);
     }
 
     function onPointerEnd(e: PointerEvent): void {
         pointers.delete(e.pointerId);
+        spread = 0;
         if (pointers.size > 0) return;
-        handlers.release();
+        // A pinch ends where it is: no coasting, and lifting the fingers isn't a tap.
+        if (pinched) {
+            pinched = false;
+            press = null;
+            return;
+        }
+        // On touch the view stops where the finger lifts; coasting there felt like the view slipping away.
+        if (e.pointerType !== 'touch') handlers.release();
         const at = local(e);
         if (
             e.type === 'pointerup' &&

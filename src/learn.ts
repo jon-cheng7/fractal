@@ -249,7 +249,7 @@ export function createLearn(
         index = Math.max(0, Math.min(LESSONS.length - 1, i));
         const lesson = LESSONS[index];
         if (!lesson) return;
-        count.textContent = `LESSON ${index + 1} / ${LESSONS.length}`;
+        count.textContent = `${index + 1} / ${LESSONS.length}`;
         title.textContent = lesson.title;
         body.textContent = lesson.body;
         tryIt.textContent = lesson.tryIt ? (touch ? lesson.tryIt.touch : lesson.tryIt.mouse) : '';
