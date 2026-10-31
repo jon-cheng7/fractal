@@ -1,4 +1,4 @@
-// On-demand animation loop: schedules a frame only when asked, and reports how long the previous one took.
+// On-demand rAF loop with frame timing
 
 export type Tick = (dt: number, now: number, frameMs: number | null) => void;
 
@@ -21,7 +21,7 @@ export function createLoop(tick: Tick): Loop {
         raf = 0;
         const gap = now - last;
         last = now;
-        // After an idle gap the interval says nothing about render cost.
+        // idle gap isn't render cost
         const frameMs = chained ? gap : null;
         chained = false;
 

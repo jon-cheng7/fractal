@@ -1,9 +1,9 @@
-// Pan/zoom model for escape-time fractals. The centre is fixed-point so zoom can run far past what float64 resolves.
+// Pan/zoom with a fixed-point centre, good to 1e30
 
 import type { Size } from '../view.ts';
 import { fromNumber, mul, toNumber } from './fixed.ts';
 
-/** `scale` is plane units per CSS pixel and fits in a float64 even at 1e30 zoom. */
+/** scale: plane units per CSS px */
 export interface DeepView {
     cx: bigint;
     cy: bigint;
@@ -15,32 +15,30 @@ export interface PlanePoint {
     y: bigint;
 }
 
-// About 1e30 zoom on a typical stage. The fixed-point centre keeps roughly 25 digits below this.
+// ~1e30 zoom
 export const MIN_SCALE = 1e-33;
 export const MAX_SCALE = 0.02;
 
-// Plane units across the short side of the stage at zoom 1.
+// plane units across short side at zoom 1
 const FIT_SPAN = 3;
 
 function clampScale(scale: number): number {
     return Math.min(MAX_SCALE, Math.max(MIN_SCALE, scale));
 }
 
-function fitScale(size: Size): number {
-    return clampScale(FIT_SPAN / Math.max(1, Math.min(size.w, size.h)));
+function fitScale(size: Size, span = FIT_SPAN): number {
+    return clampScale(span / Math.max(1, Math.min(size.w, size.h)));
 }
 
-export function fitDeepView(size: Size): DeepView {
-    return { cx: fromNumber(-0.5), cy: 0n, scale: fitScale(size) };
+export function fitDeepView(size: Size, x = -0.5, y = 0, span = FIT_SPAN): DeepView {
+    return { cx: fromNumber(x), cy: fromNumber(y), scale: fitScale(size, span) };
 }
 
-/** How far in we are, relative to the fitted view. */
 export function deepZoomLevel(view: DeepView, size: Size): number {
     return fitScale(size) / view.scale;
 }
 
-// Pixels times scale is multiplied in fixed point: a float64 product is off by ~1e-16 of itself,
-// which at 1e30 zoom is many pixels.
+// px * scale in fixed point; float64 is pixels off at 1e30
 function offset(pixels: number, scale: number): bigint {
     return mul(fromNumber(pixels), fromNumber(scale));
 }
@@ -57,7 +55,6 @@ export function deepScreenToPlane(
     };
 }
 
-/** Multiplies the scale by `factor`, keeping the plane point under (px, py) where it is. */
 export function deepZoomAt(
     view: DeepView,
     size: Size,
@@ -66,7 +63,7 @@ export function deepZoomAt(
     factor: number,
 ): DeepView {
     const scale = clampScale(view.scale * factor);
-    // Exact when the scales are within 2x of each other (Sterbenz), which covers any wheel step.
+    // exact within 2x (Sterbenz)
     const change = view.scale - scale;
     return {
         cx: view.cx + offset(px - size.w / 2, change),
@@ -75,7 +72,6 @@ export function deepZoomAt(
     };
 }
 
-/** Drags the content by (dx, dy) CSS pixels. */
 export function deepPanBy(view: DeepView, dx: number, dy: number): DeepView {
     return {
         cx: view.cx - offset(dx, view.scale),
@@ -84,11 +80,7 @@ export function deepPanBy(view: DeepView, dx: number, dy: number): DeepView {
     };
 }
 
-/** Distance between two plane points in CSS pixels at the view's scale. For tests and probes. */
-export function pixelsBetween(
-    view: DeepView,
-    a: PlanePoint,
-    b: PlanePoint,
-): number {
+/** tests */
+export function pixelsBetween(view: DeepView, a: PlanePoint, b: PlanePoint): number {
     return Math.hypot(toNumber(a.x - b.x), toNumber(a.y - b.y)) / view.scale;
 }

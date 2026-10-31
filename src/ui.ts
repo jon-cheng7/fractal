@@ -1,6 +1,11 @@
-// On-screen chrome: the title with the lessons button, the control bar, and the zoom readout.
+// Chrome: fractal menu, controls, zoom readout, Julia c
+
+import { JULIA_PRESETS, KINDS } from './fractals/kinds.ts';
+import type { Kind, KindId } from './fractals/kinds.ts';
 
 export interface ControlActions {
+    pickKind(id: KindId): void;
+    pickJulia(re: string, im: string): void;
     zoomIn(): void;
     zoomOut(): void;
     reset(): void;
@@ -16,6 +21,9 @@ export type Toggle = 'learn' | 'orbit' | 'axes' | 'stats';
 export interface Controls {
     setPressed(name: Toggle, on: boolean): void;
     setZoom(zoom: number): void;
+    setKind(kind: Kind): void;
+    /** null hides it */
+    setJulia(text: string | null): void;
 }
 
 function button(label: string, title: string, onClick: () => void): HTMLButtonElement {
@@ -38,18 +46,51 @@ function formatZoom(zoom: number): string {
 export function createControls(parent: HTMLElement, actions: ControlActions): Controls {
     const touch = matchMedia('(pointer: coarse)').matches;
 
-    // Title, top left. The lessons button sits with it so a newcomer finds it first.
+    // title + learn, top left
     const brand = document.createElement('div');
     brand.className = 'fx-brand';
     brand.dataset.fxUi = '';
-    const name = document.createElement('p');
+    // name opens the fractal menu
+    const name = document.createElement('button');
+    name.type = 'button';
     name.className = 'fx-brand-name';
-    name.textContent = 'MANDELBROT';
+    name.setAttribute('aria-haspopup', 'true');
+    name.setAttribute('aria-expanded', 'false');
+    const menu = document.createElement('div');
+    menu.className = 'fx-menu';
+    menu.hidden = true;
+    const items = KINDS.map((kind) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.className = 'fx-menu-item';
+        const title = document.createElement('span');
+        title.className = 'fx-menu-title';
+        title.textContent = kind.name;
+        const blurb = document.createElement('span');
+        blurb.className = 'fx-menu-blurb';
+        blurb.textContent = kind.blurb;
+        item.append(title, blurb);
+        item.addEventListener('click', () => {
+            setMenu(false);
+            actions.pickKind(kind.id);
+        });
+        menu.append(item);
+        return { kind, item };
+    });
+    function setMenu(open: boolean): void {
+        menu.hidden = !open;
+        name.setAttribute('aria-expanded', String(open));
+    }
+    name.addEventListener('click', () => setMenu(name.getAttribute('aria-expanded') !== 'true'));
+    // close on outside press
+    document.addEventListener('pointerdown', (e) => {
+        if (!menu.hidden && e.target instanceof Node && !brand.contains(e.target)) setMenu(false);
+    });
     const learn = button('LEARN', 'What am I looking at? (L)', actions.toggleLearn);
     learn.classList.add('fx-btn-primary');
-    brand.append(name, learn);
+    brand.append(name, learn, menu);
 
-    // Everything here ignores pointer input on the fractal; see input.ts.
+    // data-fx-ui: input ignores these
     const bar = document.createElement('div');
     bar.className = 'fx-controls';
     bar.dataset.fxUi = '';
@@ -87,7 +128,7 @@ export function createControls(parent: HTMLElement, actions: ControlActions): Co
     body.append(zoomOut, zoomIn, reset, orbit, axes, stats, link);
     bar.append(body, hide);
 
-    // Zoom readout and the one-line how-to, bottom left.
+    // zoom readout + how-to
     const status = document.createElement('p');
     status.className = 'fx-status';
     const zoomText = document.createElement('span');
@@ -97,12 +138,39 @@ export function createControls(parent: HTMLElement, actions: ControlActions): Co
     hint.textContent = touch ? 'DRAG · PINCH · DOUBLE-TAP' : 'DRAG · SCROLL · DOUBLE-CLICK';
     status.append(zoomText, hint);
 
-    parent.append(brand, bar, status);
+    // Julia c presets
+    const julia = document.createElement('div');
+    julia.className = 'fx-julia';
+    julia.dataset.fxUi = '';
+    julia.hidden = true;
+    const juliaValue = document.createElement('p');
+    juliaValue.className = 'fx-julia-value';
+    const presets = document.createElement('div');
+    presets.className = 'fx-julia-presets';
+    for (const preset of JULIA_PRESETS) {
+        const chip = button(preset.name, `c = ${preset.re} + ${preset.im}i`, () =>
+            actions.pickJulia(preset.re, preset.im),
+        );
+        presets.append(chip);
+    }
+    julia.append(juliaValue, presets);
+
+    parent.append(brand, bar, status, julia);
 
     let shown = '';
     return {
         setPressed(which, on) {
             toggles[which].setAttribute('aria-pressed', String(on));
+        },
+        setKind(kind) {
+            name.textContent = `${kind.name} ▾`;
+            // no orbit for shapes
+            orbit.hidden = kind.family === 'shape';
+            for (const { kind: k, item } of items) item.setAttribute('aria-current', String(k.id === kind.id));
+        },
+        setJulia(text) {
+            julia.hidden = text === null;
+            if (text !== null) juliaValue.textContent = text;
         },
         setZoom(zoom) {
             const text = formatZoom(zoom);

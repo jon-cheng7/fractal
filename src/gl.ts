@@ -1,8 +1,6 @@
-// Thin WebGL2 helpers: context creation, shader compile, and the fullscreen-triangle pass every fractal view shares.
+// WebGL2 helpers
 
-export function createContext(
-    canvas: HTMLCanvasElement,
-): WebGL2RenderingContext | null {
+export function createContext(canvas: HTMLCanvasElement): WebGL2RenderingContext | null {
     return canvas.getContext('webgl2', {
         alpha: true,
         premultipliedAlpha: true,
@@ -13,7 +11,7 @@ export function createContext(
     });
 }
 
-// One oversized triangle covers the screen without needing any vertex buffer.
+// one big triangle, no vertex buffer
 const FULLSCREEN_VERT = `#version 300 es
 void main() {
     float x = float((gl_VertexID << 1) & 2);
@@ -21,11 +19,7 @@ void main() {
     gl_Position = vec4(x * 2.0 - 1.0, y * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-function compile(
-    gl: WebGL2RenderingContext,
-    type: number,
-    source: string,
-): WebGLShader {
+function compile(gl: WebGL2RenderingContext, type: number, source: string): WebGLShader {
     const shader = gl.createShader(type);
     if (!shader) throw new Error('createShader failed');
     gl.shaderSource(shader, source);
@@ -62,9 +56,7 @@ export function createPass<const U extends string>(
     gl.deleteShader(vert);
     gl.deleteShader(frag);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-        throw new Error(
-            `Program link failed: ${gl.getProgramInfoLog(program)}`,
-        );
+        throw new Error(`Program link failed: ${gl.getProgramInfoLog(program)}`);
     }
 
     const uniforms = {} as Record<U, WebGLUniformLocation | null>;

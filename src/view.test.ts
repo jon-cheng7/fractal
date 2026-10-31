@@ -1,4 +1,4 @@
-// Tests for the pan/zoom maths in view.ts.
+// Float pan/zoom tests
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -15,10 +15,7 @@ import {
 const size = { w: 800, h: 600 };
 
 function close(actual: number, expected: number): void {
-    assert.ok(
-        Math.abs(actual - expected) < 1e-12,
-        `${actual} is not ${expected}`,
-    );
+    assert.ok(Math.abs(actual - expected) < 1e-12, `${actual} is not ${expected}`);
 }
 
 describe('view', () => {
@@ -35,10 +32,7 @@ describe('view', () => {
 
     it('puts the top of the screen at higher y in the plane', () => {
         const view = fitView(size);
-        assert.ok(
-            screenToPlane(view, size, 400, 0).y >
-                screenToPlane(view, size, 400, 600).y,
-        );
+        assert.ok(screenToPlane(view, size, 400, 0).y > screenToPlane(view, size, 400, 600).y);
     });
 
     it('keeps the point under the cursor fixed while zooming', () => {

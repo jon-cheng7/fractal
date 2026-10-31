@@ -1,4 +1,4 @@
-// Small mono readout of zoom, resolution, frame rate and iterations, toggled from the STATS button or H.
+// Stats readout (H)
 
 export interface HudStats {
     zoom: number;
@@ -65,7 +65,7 @@ export function createHud(parent: HTMLElement, visible: boolean): Hud {
             el.hidden = !el.hidden;
             write();
         },
-        // Throttled with a trailing write, so the last frame after an interaction always lands.
+        // throttled, trailing write
         update(stats) {
             latest = stats;
             if (timer === 0 && !el.hidden) timer = window.setTimeout(write, REFRESH_MS);

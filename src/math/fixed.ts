@@ -1,6 +1,6 @@
-// Fixed-point numbers on BigInt, for the view centre and reference orbit where float64 runs out of digits.
+// BigInt fixed point, for where float64 runs out
 
-/** Fractional bits. About 1e-58 resolution, far finer than one pixel at 1e30 zoom. */
+/** ~1e-58 */
 export const FRAC_BITS = 192;
 
 const SHIFT = BigInt(FRAC_BITS);
@@ -10,7 +10,6 @@ const MANTISSA_BITS = 52n;
 const f64 = new Float64Array(1);
 const u64 = new BigUint64Array(f64.buffer);
 
-/** A float64 is mantissa * 2^exponent, so the conversion is exact apart from truncation below 2^-FRAC_BITS. */
 export function fromNumber(x: number): bigint {
     if (!Number.isFinite(x)) throw new RangeError(`Cannot convert ${x}`);
     f64[0] = x;
@@ -21,9 +20,7 @@ export function fromNumber(x: number): bigint {
     const mantissa = biased === 0 ? fraction : fraction | (1n << MANTISSA_BITS);
     const exponent = (biased === 0 ? -1074 : biased - 1075) + FRAC_BITS;
     const magnitude =
-        exponent >= 0
-            ? mantissa << BigInt(exponent)
-            : mantissa >> BigInt(-exponent);
+        exponent >= 0 ? mantissa << BigInt(exponent) : mantissa >> BigInt(-exponent);
     return negative ? -magnitude : magnitude;
 }
 
@@ -35,7 +32,6 @@ export function mul(a: bigint, b: bigint): bigint {
     return (a * b) >> SHIFT;
 }
 
-/** Exact decimal text such as "-0.7436438870371587" to fixed point. */
 export function parse(text: string): bigint {
     const match = /^([+-]?)(\d*)(?:\.(\d*))?$/.exec(text.trim());
     const whole = match?.[2] ?? '';
@@ -48,7 +44,7 @@ export function parse(text: string): bigint {
     return match[1] === '-' ? -magnitude : magnitude;
 }
 
-/** Decimal text with `digits` places, rounded to nearest so parse then format round-trips. */
+/** rounds to nearest, round-trips with parse */
 export function format(value: bigint, digits = 20): string {
     const negative = value < 0n;
     const magnitude = negative ? -value : value;

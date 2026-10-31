@@ -1,17 +1,18 @@
-// Chooses the render resolution while the user is interacting, from measured frame times.
+// Render scale from frame times (phones)
 
 const LEVELS = [0.25, 0.35, 0.5, 0.7, 1] as const;
 
-// Frame times are compared with the fastest interval seen, which is the display's refresh.
+// vs fastest interval seen ≈ refresh
 const SLOW_RATIO = 1.5;
 const FAST_RATIO = 1.15;
 const DROP_COOLDOWN = 8;
 const RAISE_COOLDOWN = 60;
-// Anything quicker than this is timer noise, not a real vsync interval.
+// timer noise below this
 const MIN_REAL_FRAME_MS = 6;
 
 export class Quality {
-    private index = 3;
+    // start sharp
+    private index = LEVELS.length - 1;
     private average = 0;
     private refreshMs = Infinity;
     private cooldown = 0;
@@ -20,7 +21,6 @@ export class Quality {
         return LEVELS[this.index] ?? 1;
     }
 
-    /** Feed one frame interval (ms) from a continuous run of frames. */
     update(frameMs: number): void {
         if (frameMs >= MIN_REAL_FRAME_MS) {
             this.refreshMs = Math.min(this.refreshMs, frameMs);
@@ -42,7 +42,7 @@ export class Quality {
         }
     }
 
-    // The old average describes the old resolution, so measure again.
+    // remeasure at the new res
     private settle(cooldown: number): void {
         this.cooldown = cooldown;
         this.average = 0;

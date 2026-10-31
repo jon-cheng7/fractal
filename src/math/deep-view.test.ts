@@ -1,4 +1,4 @@
-// Tests for the arbitrary-precision pan/zoom model.
+// Deep pan/zoom tests
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -28,7 +28,7 @@ describe('deep view', () => {
     it('keeps the point under the cursor fixed through a zoom of 1e30', () => {
         let view = fitDeepView(size);
         const before = deepScreenToPlane(view, size, 123, 456);
-        // The cursor stays put while zooming in, as it does with a wheel.
+        // cursor stays put, like a wheel
         while (view.scale > MIN_SCALE * 1.001) {
             view = deepZoomAt(view, size, 123, 456, 0.7);
         }
@@ -40,8 +40,7 @@ describe('deep view', () => {
     it('zooms out again to where it started', () => {
         const start = fitDeepView(size);
         let view = start;
-        for (let i = 0; i < 80; i++)
-            view = deepZoomAt(view, size, 700, 50, 0.5);
+        for (let i = 0; i < 80; i++) view = deepZoomAt(view, size, 700, 50, 0.5);
         for (let i = 0; i < 80; i++) view = deepZoomAt(view, size, 700, 50, 2);
         assert.ok(Math.abs(view.scale / start.scale - 1) < 1e-9);
         assert.ok(Math.abs(toNumber(view.cx - start.cx)) < 1e-12);
@@ -56,8 +55,7 @@ describe('deep view', () => {
 
     it('does not move the centre once zoom is clamped', () => {
         let view = fitDeepView(size);
-        for (let i = 0; i < 200; i++)
-            view = deepZoomAt(view, size, 300, 200, 0.5);
+        for (let i = 0; i < 200; i++) view = deepZoomAt(view, size, 300, 200, 0.5);
         const stuck = deepZoomAt(view, size, 300, 200, 0.5);
         assert.equal(stuck.cx, view.cx);
         assert.equal(stuck.cy, view.cy);
@@ -65,14 +63,9 @@ describe('deep view', () => {
 
     it('pans by whole pixels at any depth', () => {
         let view = fitDeepView(size);
-        for (let i = 0; i < 90; i++)
-            view = deepZoomAt(view, size, 400, 300, 0.5);
+        for (let i = 0; i < 90; i++) view = deepZoomAt(view, size, 400, 300, 0.5);
         const panned = deepPanBy(view, 10, -4);
-        assert.ok(
-            Math.abs(toNumber(panned.cx - view.cx) / view.scale + 10) < 1e-6,
-        );
-        assert.ok(
-            Math.abs(toNumber(panned.cy - view.cy) / view.scale + 4) < 1e-6,
-        );
+        assert.ok(Math.abs(toNumber(panned.cx - view.cx) / view.scale + 10) < 1e-6);
+        assert.ok(Math.abs(toNumber(panned.cy - view.cy) / view.scale + 4) < 1e-6);
     });
 });

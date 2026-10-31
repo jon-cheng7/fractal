@@ -1,4 +1,4 @@
-// Tests that perturbation agrees with exact fixed-point iteration, including at 1e30 zoom.
+// Perturbation vs exact fixed point, to 1e30
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -9,7 +9,7 @@ import type { PixelResult } from './perturb.ts';
 
 const BAILOUT_R2 = 256n << BigInt(FRAC_BITS);
 
-/** Ground truth: iterate the pixel's own c in fixed point, no perturbation. */
+/** ground truth: own c, no perturbation */
 function exact(cx: bigint, cy: bigint, maxIter: number): PixelResult {
     let zr = 0n;
     let zi = 0n;
@@ -21,10 +21,7 @@ function exact(cx: bigint, cy: bigint, maxIter: number): PixelResult {
         const r2 = mul(zr, zr) + mul(zi, zi);
         if (r2 > BAILOUT_R2) {
             const value = Number(r2) / 2 ** FRAC_BITS;
-            return {
-                kind: 'escaped',
-                nu: n - Math.log2(0.5 * Math.log(value)),
-            };
+            return { kind: 'escaped', nu: n - Math.log2(0.5 * Math.log(value)) };
         }
     }
     return { kind: 'interior' };
@@ -36,7 +33,6 @@ interface Comparison {
     worst: number;
 }
 
-/** Compares every pixel of a grid of offsets around a reference point. */
 function compareGrid(
     refX: bigint,
     refY: bigint,
@@ -74,25 +70,21 @@ describe('perturbation', () => {
     });
 
     it('tracks exact iteration at 1e12 near the seahorse valley, apart from chaotic edge pixels', () => {
-        // The orbit is stored as float32, which costs a few percent of pixels near the set's edge
-        // an error of more than a few iterations. A float64 orbit and float64 maths match all of them.
+        // float32 orbit: a few % of edge pixels off by a few iterations
         const refX = parse('-0.743643887037158704752191506114774');
         const refY = parse('0.131825904205311970493132056385139');
         const r = compareGrid(refX, refY, 4.7e-15, 3000, 300, 50, 3);
-        assert.ok(
-            r.agree / r.pixels > 0.9,
-            `${r.agree}/${r.pixels}, worst ${r.worst}`,
-        );
+        assert.ok(r.agree / r.pixels > 0.9, `${r.agree}/${r.pixels}, worst ${r.worst}`);
     });
 
     it('matches exact iteration at 1e30 around the Misiurewicz point c = i', () => {
-        // c = i is exactly representable and its orbit is periodic, so the reference is perfect.
+        // c = i: exact, periodic orbit
         const r = compareGrid(0n, parse('1'), 4.7e-33, 4000, 200, 50);
         assert.equal(r.agree, r.pixels, `worst nu error ${r.worst}`);
     });
 
     it('matches at 1e30 when the view is offset from the reference', () => {
-        // The reference sits 150 pixels left of the view centre, as it does after a pan.
+        // reference 150 px left, as after a pan
         const upp = 4.7e-33;
         const refX = 0n;
         const refY = parse('1');
@@ -109,8 +101,7 @@ describe('perturbation', () => {
                 if (
                     truth.kind === got.kind &&
                     (truth.kind !== 'escaped' ||
-                        (got.kind === 'escaped' &&
-                            Math.abs(truth.nu - got.nu) < 0.05))
+                        (got.kind === 'escaped' && Math.abs(truth.nu - got.nu) < 0.05))
                 ) {
                     agree++;
                 }

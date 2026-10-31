@@ -1,11 +1,13 @@
-// Orbit lens: a small inset that plots z -> z² + c for the point under the cursor, with the facts it shows.
+// Orbit lens: inset plot of one point's orbit
 
 import { format, toNumber } from '../math/fixed.ts';
-import { computeOrbit } from '../math/orbit.ts';
+import type { Kind } from '../fractals/kinds.ts';
+import type { PlanePoint } from '../math/deep-view.ts';
+import { traceOrbit } from '../math/orbit.ts';
 import type { Orbit } from '../math/orbit.ts';
 
 const SIZE = 220;
-// The inset shows this far from the origin in each direction; the escape circle has radius 2.
+// plot half-width; escape circle is r = 2
 const RANGE = 2.2;
 const DRAWN_STEPS = 80;
 const LABELLED_STEPS = 5;
@@ -15,10 +17,10 @@ const MUTED = '#888';
 
 export interface OrbitLens {
     readonly enabled: boolean;
-    /** The orbit last traced, while the lens is on. */
     readonly orbit: Orbit | null;
     setEnabled(on: boolean): void;
-    /** The point c under the cursor. Does nothing while the lens is off or the point hasn't changed. */
+    setKind(kind: Kind, juliaC: PlanePoint | null): void;
+    /** no-op while off or unchanged */
     setPoint(cx: bigint, cy: bigint, maxIter: number, zoom: number, pinned: boolean): void;
 }
 
@@ -32,7 +34,6 @@ function row(label: string): { root: HTMLElement; value: HTMLElement } {
     return { root, value };
 }
 
-/** Index of the first point farther than 2 from the origin, or -1 if there is none. */
 function firstOutside(points: Float32Array, length: number): number {
     for (let n = 0; n < length; n++) {
         const x = points[2 * n] ?? 0;
@@ -65,6 +66,8 @@ export function createOrbitLens(parent: HTMLElement): OrbitLens {
     rows.className = 'fx-lens-rows';
     const re = row('RE C');
     const im = row('IM C');
+    let kind: Kind | null = null;
+    let juliaC: PlanePoint | null = null;
     const verdict = row('RESULT');
     rows.append(re.root, im.root, verdict.root);
 
@@ -99,7 +102,7 @@ export function createOrbitLens(parent: HTMLElement): OrbitLens {
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Follow the path until it leaves the inset, which is enough to show the escape.
+        // stop once off the inset
         const last = Math.min(length - 1, DRAWN_STEPS);
         const visible: number[] = [];
         for (let n = 0; n <= last; n++) {
@@ -135,7 +138,7 @@ export function createOrbitLens(parent: HTMLElement): OrbitLens {
             }
         }
 
-        // The point c itself, which is also the first step of the orbit.
+        // start point
         ctx.strokeStyle = CYAN;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -155,6 +158,16 @@ export function createOrbitLens(parent: HTMLElement): OrbitLens {
         get orbit() {
             return enabled ? orbit : null;
         },
+        setKind(next, c) {
+            kind = next;
+            juliaC = c;
+            const julia = next.formula === 1;
+            (re.root.firstChild as HTMLElement).textContent = julia ? 'RE z₀' : 'RE C';
+            (im.root.firstChild as HTMLElement).textContent = julia ? 'IM z₀' : 'IM C';
+            note.textContent = `${next.start}, THEN REPEAT ${next.rule}. IF THE PATH EVER LEAVES THE DASHED CIRCLE (RADIUS 2) IT NEVER COMES BACK.`;
+            lastX = null;
+            lastY = null;
+        },
         setEnabled(on) {
             enabled = on;
             panel.hidden = !enabled;
@@ -170,10 +183,15 @@ export function createOrbitLens(parent: HTMLElement): OrbitLens {
             lastX = cx;
             lastY = cy;
 
-            orbit = computeOrbit(cx, cy, maxIter);
+            const formula = kind?.formula ?? 0;
+            orbit =
+                formula === 1 && juliaC
+                    ? traceOrbit(1, cx, cy, juliaC.x, juliaC.y, maxIter)
+                    : traceOrbit(formula, 0n, 0n, cx, cy, maxIter);
             const digits = Math.min(30, Math.max(6, Math.ceil(Math.log10(zoom)) + 5));
             re.value.textContent = format(cx, digits);
-            im.value.textContent = format(cy, digits);
+            // ship is upside down
+            im.value.textContent = format(kind?.imagSign === -1 ? -cy : cy, digits);
 
             const outside = firstOutside(orbit.points, orbit.length);
             verdict.value.textContent =

@@ -1,23 +1,16 @@
-// CPU version of the per-pixel perturbation loop the shader runs, so the algorithm can be tested and reused for orbit tracing at depth.
+// CPU perturbation, for tests
 
 import type { Orbit } from './orbit.ts';
 
 export type PixelResult =
     | { kind: 'escaped'; nu: number }
     | { kind: 'interior' }
-    // The reference escaped before this pixel did, so there is nothing left to follow.
+    // reference ran out
     | { kind: 'unresolved' };
 
 const BAILOUT_R2 = 256;
 
-/**
- * Iterates one pixel as a small offset from the reference orbit.
- *
- * Offsets are kept in units of `upp` (plane units per pixel): eps = delta / upp. That keeps every
- * value near pixel-sized however deep we zoom, so float32 never underflows on the GPU.
- *
- * (dcx, dcy) is the pixel's offset from the reference point, in pixels.
- */
+/** offsets in px units (eps = delta / upp) so float32 never underflows */
 export function perturbPixel(
     orbit: Orbit,
     dcx: number,
@@ -52,7 +45,7 @@ export function perturbPixel(
         }
         if (m >= last && orbit.escaped) return { kind: 'unresolved' };
 
-        // Once the pixel's true z is smaller than its offset, restart the reference from z0 = 0 (rebasing).
+        // rebase
         const sx = Zx * invUpp + ex;
         const sy = Zy * invUpp + ey;
         if (sx * sx + sy * sy < ex * ex + ey * ey) {

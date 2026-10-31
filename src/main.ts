@@ -1,7 +1,9 @@
-// Entry point: wires the stage, input, render loop, overlays, lessons and controls around the active fractal.
+// Entry: wires stage, input, loop, UI, lessons
 
 import './style.css';
-import { createMandelbrot, iterationsFor } from './fractals/mandelbrot.ts';
+import { JULIA_PRESETS, kindById } from './fractals/kinds.ts';
+import type { Kind, KindId } from './fractals/kinds.ts';
+import { createEscapeTime, iterationsFor } from './fractals/mandelbrot.ts';
 import type { Fractal, Frame } from './fractals/types.ts';
 import { createContext } from './gl.ts';
 import { createHud } from './hud.ts';
@@ -15,30 +17,28 @@ import {
     deepPanBy,
     deepScreenToPlane,
     deepZoomAt,
-    deepZoomLevel,
     fitDeepView,
 } from './math/deep-view.ts';
 import type { DeepView, PlanePoint } from './math/deep-view.ts';
-import { format, fromNumber, mul, parse } from './math/fixed.ts';
+import { format, fromNumber, mul, parse, toNumber } from './math/fixed.ts';
 import { createOverlay } from './overlay.ts';
+import { createShapes } from './shapes.ts';
+import type { ShapeId } from './shapes.ts';
 import { Quality } from './quality.ts';
 import { createStage } from './stage.ts';
 import { createControls } from './ui.ts';
 import type { Size } from './view.ts';
 
-// Two rendering modes. Desktop: iteration samples at a fixed density per CSS pixel, so quality never visibly
-// changes, with the colour pass drawing a boundary line and glow at full screen resolution on top.
-// Phones: the original banded look, sharp when still, dropping resolution only while zooming.
+// desktop: fixed grid + full-res colour. phones: classic look, drops res while zooming
 const TOUCH = matchMedia('(pointer: coarse)').matches;
 const GRID_DENSITY = 1;
 
-// Desktop zoom style: while zooming the picture is drawn in square blocks this many CSS pixels wide, one
-// sample per block. Once the zoom stops it steps down through the sizes, each step shown once it's finished
-// (and for at least BLOCK_DWELL_MS, so the steps read as deliberate), ending at full detail (0).
+// desktop zoom blocks (CSS px), resolving down to 0 = full detail
+// each step held at least BLOCK_DWELL_MS
 const BLOCKS = [12, 6, 3, 0];
 const BLOCK_DWELL_MS = 70;
 
-// Pixels times iterations is the GPU's real workload, so on phones deep views drop resolution while zooming.
+// px × iterations ≈ GPU cost (phones)
 const WORK_BUDGET = 6e8;
 const WORK_SCALES = [1, 0.7, 0.5, 0.35];
 
@@ -47,13 +47,13 @@ function workScale(css: Size, dpr: number, iterations: number): number {
     return WORK_SCALES.find((s) => s <= ideal) ?? 0.25;
 }
 
-// How long after the last input we keep rendering at reduced resolution.
+// low-res window after input
 const SETTLE_MS = 140;
 
-// Eased moves close this fraction of the remaining distance per second (as an exponential rate).
+// exponential rates (1/s)
 const ZOOM_RATE = 12;
 const PAN_RATE = 14;
-// After a drag is released the view coasts, losing speed at this rate, and stops below this speed (px/s).
+// coast decay rate, stop speed px/s
 const COAST_DECAY = 7;
 const COAST_MIN = 20;
 const FLY_MS = 1600;
@@ -70,24 +70,54 @@ function showError(root: HTMLElement, text: string): void {
     root.append(message);
 }
 
-/** Reads a view from a link of the form #re,im,zoom, such as #0,1,1e30. */
-function viewFromHash(size: Size): DeepView | null {
-    const [re, im, zoom] = location.hash.slice(1).split(',');
-    const level = Number(zoom);
-    if (!re || !im || !(level >= 1)) return null;
-    try {
-        return { cx: parse(re), cy: parse(im), scale: Math.max(MIN_SCALE, fitDeepView(size).scale / level) };
-    } catch {
-        return null;
-    }
+interface Place {
+    kind: Kind;
+    view: DeepView | null;
+    julia: PlanePoint | null;
 }
 
-function writeHash(view: DeepView, size: Size): void {
-    const zoom = deepZoomLevel(view, size);
-    // Enough digits to pin the centre to well under a pixel at this zoom.
+function fitFor(kind: Kind, size: Size): DeepView {
+    return fitDeepView(size, kind.fit.x, kind.fit.y, kind.fit.span);
+}
+
+/** #kind/re,im,zoom[/cre,cim]. old #re,im,zoom = mandelbrot */
+function readHash(size: Size): Place {
+    const parts = location.hash.slice(1).split('/');
+    const named = parts.length > 1;
+    const kind = kindById(named ? parts[0] : 'mandelbrot');
+    const pair = (text: string | undefined): [bigint, bigint, number] | null => {
+        const [re, im, zoom] = (text ?? '').split(',');
+        if (!re || !im) return null;
+        try {
+            return [parse(re), parse(im), Number(zoom)];
+        } catch {
+            return null;
+        }
+    };
+    const at = pair(named ? parts[1] : parts[0]);
+    const c = pair(parts[2]);
+    const level = at?.[2] ?? NaN;
+    return {
+        kind,
+        view: at && level >= 1 ? { cx: at[0], cy: at[1], scale: Math.max(MIN_SCALE, fitFor(kind, size).scale / level) } : null,
+        julia: c ? { x: c[0], y: c[1] } : null,
+    };
+}
+
+function writeHash(kind: Kind, view: DeepView, size: Size, julia: PlanePoint): void {
+    // relative to this fractal's fit
+    const zoom = fitFor(kind, size).scale / view.scale;
+    // sub-pixel precision at this zoom
     const digits = Math.max(10, Math.ceil(Math.log10(zoom)) + 12);
-    const text = `#${format(view.cx, digits)},${format(view.cy, digits)},${zoom.toExponential(3)}`;
+    const c = kind.formula === 1 ? `/${format(julia.x, 12)},${format(julia.y, 12)}` : '';
+    const text = `#${kind.id}/${format(view.cx, digits)},${format(view.cy, digits)},${zoom.toExponential(3)}${c}`;
     history.replaceState(null, '', text);
+}
+
+function juliaText(c: PlanePoint): string {
+    const re = Number(toNumber(c.x).toFixed(6));
+    const im = Number(toNumber(c.y).toFixed(6));
+    return `c = ${re} ${im < 0 ? '−' : '+'} ${Math.abs(im)}i`;
 }
 
 function easeInOut(t: number): number {
@@ -101,27 +131,33 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         return;
     }
 
-    // A non-null alias, because the null check above doesn't carry into hoisted functions.
+    // non-null alias for hoisted fns
     const ctx = gl;
     const quality = new Quality();
     const stage = createStage(root, canvas, () => loop.request());
 
     let fractal: Fractal;
     try {
-        fractal = createMandelbrot(gl);
+        fractal = createEscapeTime(gl);
     } catch (error) {
         showFallback(root, canvas, error instanceof Error ? error.message : String(error));
         return;
     }
 
     const overlay = createOverlay(root);
+    // between GL canvas and overlay
+    const shapes = createShapes(root, root.querySelector('.fx-overlay') ?? canvas);
     const hud = createHud(root, import.meta.env.DEV);
     const lens = createOrbitLens(root);
 
-    let view: DeepView = viewFromHash(stage.css) ?? fitDeepView(stage.css);
+    const place = readHash(stage.css);
+    let kind = place.kind;
+    const rabbit = JULIA_PRESETS[0];
+    let juliaC: PlanePoint = place.julia ?? { x: parse(rabbit?.re ?? '0'), y: parse(rabbit?.im ?? '0') };
+    let view: DeepView = place.view ?? fitFor(kind, stage.css);
     let lastInput = -Infinity;
     let lastZoom = -Infinity;
-    // Desktop starts blocky, so the first view resolves in the same steps as a zoom.
+    // desktop resolves on load too
     let blockStep = TOUCH ? BLOCKS.length - 1 : 0;
     let blockSince = 0;
     let wasRefining = false;
@@ -131,15 +167,16 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
     let glFault = '';
     let glChecks = 0;
 
-    // Teaching state: the number grid, a fixed step limit, and a fill that makes the set itself visible.
+    // teaching state
     let axes = false;
     let iterCap: number | null = null;
     let fill = 0;
-    // The point whose orbit is traced: pinned on the plane, or else wherever the mouse is.
+    let chaos = false;
+    // pinned, else follows the mouse
     let pinned: PlanePoint | null = null;
     let pointer: { x: number; y: number } | null = null;
 
-    // Motion still to be applied: natural log of the zoom factor, a pixel offset, and coasting speed.
+    // pending motion: log zoom, px offset, coast speed
     let pendingZoom = 0;
     let anchor = { x: 0, y: 0 };
     let pendingX = 0;
@@ -148,10 +185,10 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
     let coastY = 0;
     let drag = { t: 0, vx: 0, vy: 0 };
     let fly: { from: DeepView; to: DeepView; t0: number } | null = null;
-    // The plane point under the fingers and the scale when the current pinch began.
+    // plane point + scale at pinch start
     let pinchFrom: { at: PlanePoint; scale: number } | null = null;
 
-    // Smooths the drag speed so a flick carries on at the speed the hand was moving.
+    // flick speed
     function trackDrag(dx: number, dy: number): void {
         const now = performance.now();
         const seconds = Math.max(1, now - drag.t) / 1000;
@@ -163,8 +200,7 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         };
     }
 
-    // The centre moves in step with the scale, so the destination drifts into place instead of
-    // shooting past the screen while the zoom is still catching up.
+    // centre moves with scale so the target doesn't overshoot
     function flyStep(now: number): void {
         if (!fly) return;
         const t = Math.min(1, (now - fly.t0) / FLY_MS);
@@ -184,7 +220,7 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         }
     }
 
-    /** Applies this frame's share of any eased motion. Returns true while something is still moving. */
+    /** true while still moving */
     function glide(dt: number, now: number): boolean {
         if (fly) {
             lastZoom = now;
@@ -197,8 +233,8 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             const share = Math.abs(pendingZoom) < 1e-3 ? 1 : 1 - Math.exp(-dt * ZOOM_RATE);
             const step = pendingZoom * share;
             const before = view.scale;
-            view = deepZoomAt(view, stage.css, anchor.x, anchor.y, Math.exp(step));
-            // Stuck against the zoom limit: drop what's left instead of animating nothing.
+            zoomAt(anchor.x, anchor.y, Math.exp(step));
+            // hit the zoom limit
             pendingZoom = view.scale === before ? 0 : pendingZoom - step;
             lastZoom = now;
             moving = pendingZoom !== 0;
@@ -228,15 +264,28 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         return moving;
     }
 
+    // vs this fractal's fit
+    function zoomLevel(): number {
+        return fitFor(kind, stage.css).scale / view.scale;
+    }
+
+    function minScale(): number {
+        return Math.max(MIN_SCALE, fitFor(kind, stage.css).scale / kind.maxZoom);
+    }
+
+    function zoomAt(px: number, py: number, factor: number): void {
+        view = deepZoomAt(view, stage.css, px, py, Math.max(factor, minScale() / view.scale));
+    }
+
     function orbitPoint(): PlanePoint | null {
         if (pinned) return pinned;
         if (!pointer) return null;
         return deepScreenToPlane(view, stage.css, pointer.x, pointer.y);
     }
 
-    // Re-traces the orbit and redraws the axes and path over the fractal for the current view.
+    // re-trace orbit, redraw overlay
     function syncOverlay(): void {
-        const zoom = deepZoomLevel(view, stage.css);
+        const zoom = zoomLevel();
         const c = lens.enabled ? orbitPoint() : null;
         if (c) lens.setPoint(c.x, c.y, iterationsFor(zoom), zoom, pinned !== null);
         const path = lens.orbit;
@@ -245,11 +294,12 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             size: stage.css,
             zoom,
             axes,
+            imagSign: kind.imagSign,
+            julia: kind.formula === 1,
             orbit: c && path ? { c, path } : null,
         });
     }
 
-    /** The current block size in canvas pixels. */
     function blockSize(): number {
         const css = BLOCKS[blockStep] ?? 0;
         return css > 0 ? Math.max(1, Math.round((css * stage.buffer.w) / stage.css.w)) : 1;
@@ -265,16 +315,18 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             block: TOUCH ? 1 : blockSize(),
             look: TOUCH ? 'classic' : 'glow',
             unitsPerPixel: (view.scale * css.w) / buffer.w,
-            zoom: deepZoomLevel(view, css),
+            zoom: zoomLevel(),
             frameMs,
             iterCap,
             fillInside: fill,
+            formula: kind.formula,
+            juliaC: kind.formula === 1 ? juliaC : null,
         };
     }
 
     function tick(dt: number, now: number, frameMs: number | null): void {
         if (contextLost) return;
-        // Coasting and easing count as interaction, so the view stays in its fast mode until it stops.
+        // easing/coast counts as interaction
         if (glide(dt, now)) lastInput = now;
         const interacting = now - lastInput < SETTLE_MS;
 
@@ -295,7 +347,7 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         if (TOUCH) {
             if (interacting && frameMs !== null) quality.update(frameMs);
             const dpr = Math.min(window.devicePixelRatio || 1, 2);
-            const iterations = iterCap ?? iterationsFor(deepZoomLevel(view, stage.css));
+            const iterations = iterCap ?? iterationsFor(zoomLevel());
             const zooming = now - lastZoom < SETTLE_MS;
             const scale = Math.min(quality.scale, workScale(stage.css, dpr, iterations));
             stage.setRenderScale(zooming ? scale : 1);
@@ -303,9 +355,12 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         const info = frameInfo(frameMs);
         let refining: boolean;
         try {
-            refining = fractal.draw(info);
+            refining =
+                kind.family === 'shape'
+                    ? shapes.draw({ id: kind.id as ShapeId, view, size: stage.css, depth: iterCap, chaos })
+                    : fractal.draw(info);
         } catch (error) {
-            // Otherwise this only reaches the console and the page just looks empty.
+            // else the page just looks empty
             contextLost = true;
             showError(root, error instanceof Error ? error.message : String(error));
             return;
@@ -313,7 +368,7 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         syncOverlay();
         controls.setZoom(info.zoom);
 
-        // GL reports most failures silently. getError stalls the pipeline, so only the first frames are checked.
+        // getError stalls; first frames only
         if (!glFault && glChecks < 3) {
             glChecks++;
             const code = ctx.getError();
@@ -324,10 +379,17 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             width: info.width,
             height: info.height,
             fps,
-            detail: fractal.detail(info) + glFault,
+            detail:
+                kind.family === 'shape'
+                    ? iterCap !== null
+                        ? `DEPTH ${iterCap}`
+                        : chaos
+                          ? 'CHAOS GAME'
+                          : 'TO 1 PX'
+                    : fractal.detail(info) + glFault,
         });
 
-        if (wasInteracting && !interacting) writeHash(view, stage.css);
+        if (wasInteracting && !interacting) writeHash(kind, view, stage.css, juliaC);
         wasInteracting = interacting;
         wasRefining = refining;
         if (interacting || refining || blockStep < BLOCKS.length - 1) loop.request();
@@ -357,13 +419,13 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
 
     function resetView(): void {
         stopMotion();
-        view = fitDeepView(stage.css);
+        view = fitFor(kind, stage.css);
         touch();
     }
 
     function flyTo(re: string, im: string, zoom: number): void {
         stopMotion();
-        const to = { cx: parse(re), cy: parse(im), scale: fitDeepView(stage.css).scale / zoom };
+        const to = { cx: parse(re), cy: parse(im), scale: fitFor(kind, stage.css).scale / zoom };
         fly = { from: view, to, t0: performance.now() };
         lastInput = performance.now();
         loop.request();
@@ -388,7 +450,7 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
     }
 
     async function copyLink(): Promise<boolean> {
-        writeHash(view, stage.css);
+        writeHash(kind, view, stage.css, juliaC);
         try {
             await navigator.clipboard.writeText(location.href);
             return true;
@@ -397,12 +459,58 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         }
     }
 
+    // GL canvas or shapes canvas
+    function showFamily(): void {
+        const shape = kind.family === 'shape';
+        canvas.style.visibility = shape ? 'hidden' : '';
+        shapes.setVisible(shape);
+        if (shape && lens.enabled) setOrbit(false, null);
+    }
+
+    function switchKind(id: KindId): void {
+        kind = kindById(id);
+        stopMotion();
+        pinned = null;
+        chaos = false;
+        showFamily();
+        view = fitFor(kind, stage.css);
+        lens.setKind(kind, juliaC);
+        controls.setKind(kind);
+        controls.setJulia(kind.formula === 1 ? juliaText(juliaC) : null);
+        learn.setKind(kind.id);
+        // resolve like a zoom
+        lastZoom = performance.now();
+        writeHash(kind, view, stage.css, juliaC);
+        syncOverlay();
+        touch();
+    }
+
+    function setJulia(c: PlanePoint): void {
+        juliaC = c;
+        lens.setKind(kind, juliaC);
+        controls.setJulia(kind.formula === 1 ? juliaText(juliaC) : null);
+        lastZoom = performance.now();
+        if (kind.formula === 1) writeHash(kind, view, stage.css, juliaC);
+        syncOverlay();
+        touch();
+    }
+
+    // julia for the traced point, else the view centre
+    function openJulia(): void {
+        if (kind.id !== 'mandelbrot') return;
+        const c = (lens.enabled ? orbitPoint() : null) ?? { x: view.cx, y: view.cy };
+        juliaC = c;
+        switchKind('julia');
+    }
+
     const controls = createControls(root, {
+        pickKind: switchKind,
+        pickJulia: (re, im) => setJulia({ x: parse(re), y: parse(im) }),
         zoomIn: () => zoomBy(0.5),
         zoomOut: () => zoomBy(2),
         reset: resetView,
         toggleLearn: () => learn.toggle(),
-        toggleOrbit: () => setOrbit(!lens.enabled, null),
+        toggleOrbit: () => kind.family === 'escape' && setOrbit(!lens.enabled, null),
         toggleAxes: () => setAxes(!axes),
         toggleStats,
         copyLink,
@@ -424,6 +532,13 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             },
             setFill(alpha) {
                 fill = alpha;
+                loop.request();
+            },
+            setJulia(re, im) {
+                setJulia({ x: parse(re), y: parse(im) });
+            },
+            setChaos(on) {
+                chaos = on;
                 loop.request();
             },
         },
@@ -448,7 +563,7 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
                 anchor = { x: px, y: py };
                 pendingZoom += Math.log(factor);
             } else {
-                view = deepZoomAt(view, stage.css, px, py, factor);
+                zoomAt(px, py, factor);
                 lastZoom = performance.now();
             }
             touch();
@@ -458,17 +573,17 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             pinchFrom = { at: deepScreenToPlane(view, stage.css, px, py), scale: view.scale };
             touch();
         },
-        // Keeps the point that started under the fingers under them, at the scale their spread asks for.
+        // keep the start point under the fingers
         pinch(px, py, spread) {
             if (!pinchFrom) return;
-            const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinchFrom.scale / spread));
+            const scale = Math.min(MAX_SCALE, Math.max(minScale(), pinchFrom.scale / spread));
             const offset = deepScreenToPlane({ cx: 0n, cy: 0n, scale }, stage.css, px, py);
             view = { cx: pinchFrom.at.x - offset.x, cy: pinchFrom.at.y - offset.y, scale };
             lastZoom = performance.now();
             touch();
         },
         release() {
-            // Only a flick coasts; a drag that paused before letting go stays put.
+            // only flicks coast
             if (performance.now() - drag.t < 80) {
                 coastX = drag.vx;
                 coastY = drag.vy;
@@ -487,9 +602,10 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             syncOverlay();
         },
         doubleTap: (px, py) => zoomBy(0.4, px, py),
-        toggleLens: () => setOrbit(!lens.enabled, null),
+        toggleLens: () => kind.family === 'escape' && setOrbit(!lens.enabled, null),
         toggleAxes: () => setAxes(!axes),
         toggleLearn: () => learn.toggle(),
+        openJulia,
         toggleHud: toggleStats,
         size: () => stage.css,
     });
@@ -504,13 +620,13 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         contextLost = true;
     });
     canvas.addEventListener('webglcontextrestored', () => {
-        fractal = createMandelbrot(gl);
+        fractal = createEscapeTime(gl);
         contextLost = false;
         loop.request();
     });
 
-    // Inside a host page (joncheng.ca), report the pointer so the host's custom cursor can follow it over this frame.
-    // Only the position is sent, so any parent origin is fine.
+    // framed by joncheng.ca: report pointer for its custom cursor
+    // position only, any origin ok
     if (window.parent !== window) {
         window.addEventListener(
             'pointermove',
@@ -519,7 +635,13 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         );
     }
 
-    // First visit: open the lessons, unless the link points somewhere specific.
+    lens.setKind(kind, juliaC);
+    controls.setKind(kind);
+    controls.setJulia(kind.formula === 1 ? juliaText(juliaC) : null);
+    learn.setKind(kind.id);
+    showFamily();
+
+    // first visit, no link: open lessons
     if (!location.hash) learn.toggle();
     loop.request();
 }

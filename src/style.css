@@ -1,4 +1,4 @@
-/* Tokens and the few styles the app needs. All classes are prefixed fx- so they can't collide with the host site. */
+/* fx- prefix: no clashes with the host site */
 
 :root {
     --fx-bg: #0a0a0a;
@@ -23,7 +23,7 @@ body {
     background-color: var(--fx-bg);
 }
 
-/* Blueprint grid: minor lines every 24px, major every 120px. The canvas is transparent so it shows through. */
+/* blueprint grid; canvas is transparent */
 body {
     background-image:
         linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
@@ -59,6 +59,7 @@ body {
 }
 
 .fx-canvas,
+.fx-shapes,
 .fx-overlay {
     position: absolute;
     inset: 0;
@@ -67,11 +68,17 @@ body {
     height: 100%;
 }
 
-.fx-overlay {
+.fx-overlay,
+.fx-shapes {
     pointer-events: none;
 }
 
-/* Shared panel look. No backdrop blur: it would be recomputed under a canvas that redraws every frame. */
+.fx-shapes[hidden],
+.fx-btn[hidden] {
+    display: none;
+}
+
+/* no backdrop blur: canvas redraws every frame */
 .fx-hud,
 .fx-lens,
 .fx-learn,
@@ -156,7 +163,7 @@ body {
     color: var(--fx-muted);
 }
 
-/* Title, top left */
+/* Title */
 
 .fx-brand {
     position: absolute;
@@ -170,12 +177,120 @@ body {
 }
 
 .fx-brand-name {
+    height: 2.25rem;
     margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
     color: var(--fx-fg);
+    font: inherit;
     letter-spacing: 0.2em;
+    white-space: nowrap;
+    cursor: pointer;
 }
 
-/* Control bar, top right */
+.fx-brand-name:hover,
+.fx-brand-name[aria-expanded='true'] {
+    color: var(--fx-accent);
+}
+
+.fx-brand-name:focus-visible {
+    outline: 1px solid var(--fx-accent);
+    outline-offset: 2px;
+}
+
+/* Fractal menu */
+
+.fx-menu {
+    position: absolute;
+    top: calc(100% + 0.4rem);
+    left: 0;
+    z-index: 2;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    box-sizing: border-box;
+    width: 21rem;
+    max-width: calc(100vw - 2 * var(--fx-gap));
+    padding: 0.35rem;
+    border: 1px solid var(--fx-line);
+    border-radius: var(--fx-radius);
+    background: var(--fx-panel);
+}
+
+.fx-menu[hidden] {
+    display: none;
+}
+
+.fx-menu-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0.6rem 0.7rem;
+    border: 1px solid transparent;
+    border-radius: 7px;
+    background: none;
+    color: var(--fx-fg);
+    font: inherit;
+    letter-spacing: 0.1em;
+    text-align: left;
+    cursor: pointer;
+}
+
+.fx-menu-item:hover {
+    border-color: var(--fx-line);
+}
+
+.fx-menu-item[aria-current='true'] .fx-menu-title {
+    color: var(--fx-accent);
+}
+
+.fx-menu-blurb {
+    color: var(--fx-muted);
+    letter-spacing: 0.02em;
+    line-height: 1.4;
+    text-transform: none;
+}
+
+/* Julia c */
+
+.fx-julia {
+    position: absolute;
+    top: calc(var(--fx-gap) + 3.6rem);
+    right: var(--fx-gap);
+    box-sizing: border-box;
+    width: 21rem;
+    max-width: calc(100% - 2 * var(--fx-gap));
+    padding: 0.6rem;
+    border: 1px solid var(--fx-line);
+    border-radius: var(--fx-radius);
+    background: var(--fx-panel);
+    cursor: default;
+}
+
+.fx-julia[hidden] {
+    display: none;
+}
+
+.fx-julia-value {
+    margin: 0 0 0.5rem 0.2rem;
+    color: var(--fx-accent);
+    font-variant-numeric: tabular-nums;
+}
+
+.fx-julia-presets {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+
+.fx-julia-presets .fx-btn {
+    flex-shrink: 0;
+    height: 1.9rem;
+    padding: 0 0.55rem;
+}
+
+/* Control bar */
 
 .fx-controls {
     position: absolute;
@@ -205,7 +320,7 @@ body {
     color: var(--fx-muted);
 }
 
-/* Zoom readout, bottom left */
+/* Zoom readout */
 
 .fx-status {
     position: absolute;
@@ -264,7 +379,7 @@ body {
     color: var(--fx-accent);
 }
 
-/* Lessons, left */
+/* Lessons */
 
 .fx-learn {
     position: absolute;
@@ -361,7 +476,7 @@ body {
     gap: 0.1rem;
 }
 
-/* The visible dot is small; the button around it is a comfortable target. */
+/* small dot, big target */
 .fx-learn-dot {
     width: 1.1rem;
     height: 1.75rem;
@@ -385,7 +500,7 @@ body {
     background: var(--fx-accent);
 }
 
-/* Orbit lens, bottom right */
+/* Orbit lens */
 
 .fx-lens {
     position: absolute;
@@ -455,7 +570,7 @@ body {
     font-size: 0.75rem;
 }
 
-/* Phones: controls become a toolbar along the bottom, lessons a sheet above it, the lens a strip at the top. */
+/* Phones */
 @media (max-width: 640px) {
     .fx-stage {
         --fx-gap: 0.5rem;
@@ -525,7 +640,7 @@ body {
         padding: 0.5rem 0.7rem;
     }
 
-    /* On a phone the path is drawn on the fractal itself, so the inset plot is redundant. */
+    /* path is drawn on the fractal */
     .fx-lens-canvas,
     .fx-lens-note {
         display: none;
@@ -537,5 +652,25 @@ body {
 
     .fx-hud {
         top: calc(var(--fx-gap) + 3.6rem + env(safe-area-inset-top));
+    }
+
+    /* julia c above the toolbar, lessons move up */
+    .fx-julia {
+        top: auto;
+        bottom: calc(var(--fx-bar) + var(--fx-gap));
+        left: var(--fx-gap);
+        right: var(--fx-gap);
+        width: auto;
+    }
+
+    .fx-julia-presets {
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    .fx-stage:has(.fx-julia:not([hidden])) .fx-learn {
+        bottom: calc(var(--fx-bar) + var(--fx-gap) + 6rem);
+        max-height: 40%;
     }
 }

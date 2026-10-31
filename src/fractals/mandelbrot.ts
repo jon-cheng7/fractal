@@ -1,8 +1,8 @@
-// Mandelbrot set view: perturbation rendering against a high-precision reference orbit, refined over several frames.
+// Escape-time renderer: perturbation, refined over frames
 
 import { createPass } from '../gl.ts';
 import { toNumber } from '../math/fixed.ts';
-import { computeOrbit } from '../math/orbit.ts';
+import { traceOrbit } from '../math/orbit.ts';
 import fragmentSource from './mandelbrot.frag.glsl?raw';
 import stepSource from './perturb-step.frag.glsl?raw';
 import type { FractalFactory, Frame } from './types.ts';
@@ -12,16 +12,15 @@ const MAX_ITER = 20000;
 const ITER_PER_DOUBLING = 32;
 
 const ORBIT_WIDTH = 2048;
-// Compute a longer orbit than needed so zooming in doesn't recompute it every step.
+// headroom so zooming in doesn't retrace every step
 const ORBIT_HEADROOM = 1.5;
-// Recompute the reference once the view centre has drifted this many screens away from it.
+// screens of drift before a new reference
 const REFERENCE_DRIFT = 3;
 
 const MIN_CHUNK = 16;
 const MAX_CHUNK = 1024;
 
-// The exact cardioid and disc tests use the pixel's position as a float, which is only precise enough
-// at shallow zoom. Deeper, the derivative check in the shader finds the inside instead.
+// shape tests use float c, only precise when shallow
 const SHAPE_TEST_MIN_UPP = 1e-6;
 
 export function iterationsFor(zoom: number): number {
@@ -38,10 +37,9 @@ interface StateTarget extends Target {
     deriv: WebGLTexture;
 }
 
-/** What the state textures currently hold: which pixel grid, at what scale and step limit. */
 interface Snapshot {
     reference: number;
-    // The rendered centre, in whole pixels from the reference.
+    // grid centre, whole px from reference
     sx: number;
     sy: number;
     scale: number;
@@ -50,7 +48,7 @@ interface Snapshot {
     maxIter: number;
 }
 
-export const createMandelbrot: FractalFactory = (gl) => {
+export const createEscapeTime: FractalFactory = (gl) => {
     if (!gl.getExtension('EXT_color_buffer_float')) {
         throw new Error('This browser cannot render to float textures (EXT_color_buffer_float).');
     }
@@ -72,6 +70,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
         'u_bailout',
         'u_refC',
         'u_shapeTest',
+        'u_formula',
     ]);
     const show = createPass(gl, fragmentSource, [
         'u_state',
@@ -131,7 +130,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
     function createImage(width: number, height: number): Target {
         const texture = createTexture();
         gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, width, height, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-        // The finished image is sampled between texels when it is reprojected.
+        // sampled between texels when reprojected
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         return { texture, framebuffer: createFramebuffer([texture]) };
@@ -147,14 +146,14 @@ export const createMandelbrot: FractalFactory = (gl) => {
     let read: StateTarget | null = null;
     let write: StateTarget | null = null;
     let allocated = { width: 0, height: 0 };
-    // The last finished picture at screen resolution and the view it shows, kept to cover pixels still iterating.
+    // last finished frame, backdrop for unfinished pixels
     let image: Target | null = null;
     let imageAlloc = { width: 0, height: 0 };
     let imageView: { cx: bigint; cy: bigint; upp: number; width: number; height: number } | null =
         null;
     let committed: Snapshot | null = null;
 
-    // Targets only grow, so a smaller size never reallocates; smaller frames use a corner.
+    // grow only
     function ensureTargets(gridW: number, gridH: number, outW: number, outH: number): void {
         if (!read || !write || gridW > allocated.width || gridH > allocated.height) {
             if (read) destroyTarget(read);
@@ -179,7 +178,6 @@ export const createMandelbrot: FractalFactory = (gl) => {
         }
     }
 
-    /** The iteration grid for a frame: its size and plane units per grid pixel. */
     interface Grid {
         width: number;
         height: number;
@@ -193,18 +191,33 @@ export const createMandelbrot: FractalFactory = (gl) => {
         cy: bigint;
         iterations: number;
         length: number;
+        // formula + julia c
+        key: string;
     } | null = null;
     let references = 0;
 
-    function setReference(cx: bigint, cy: bigint, maxIter: number): void {
+    function referenceKey(frame: Frame): string {
+        return `${frame.formula}:${frame.juliaC ? `${frame.juliaC.x},${frame.juliaC.y}` : ''}`;
+    }
+
+    function setReference(frame: Frame, cx: bigint, cy: bigint, maxIter: number): void {
         const iterations = Math.min(MAX_ITER, Math.ceil(maxIter * ORBIT_HEADROOM));
-        const orbit = computeOrbit(cx, cy, iterations);
+        // julia: ref point is z0, c fixed
+        const julia = frame.formula === 1 && frame.juliaC;
+        const orbit = julia
+            ? traceOrbit(1, cx, cy, julia.x, julia.y, iterations)
+            : traceOrbit(frame.formula, 0n, 0n, cx, cy, iterations);
         const rows = Math.ceil(orbit.length / ORBIT_WIDTH);
-        const padded = new Float32Array(rows * ORBIT_WIDTH * 2);
-        padded.set(orbit.points);
+        const packed = new Float32Array(rows * ORBIT_WIDTH * 4);
+        for (let i = 0; i < orbit.length; i++) {
+            packed[4 * i] = orbit.points[2 * i] ?? 0;
+            packed[4 * i + 1] = orbit.points[2 * i + 1] ?? 0;
+            packed[4 * i + 2] = orbit.deltas[2 * i] ?? 0;
+            packed[4 * i + 3] = orbit.deltas[2 * i + 1] ?? 0;
+        }
         gl.bindTexture(gl.TEXTURE_2D, orbitTexture);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RG32F, ORBIT_WIDTH, rows, 0, gl.RG, gl.FLOAT, padded);
-        reference = { id: ++references, cx, cy, iterations, length: orbit.length };
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, ORBIT_WIDTH, rows, 0, gl.RGBA, gl.FLOAT, packed);
+        reference = { id: ++references, cx, cy, iterations, length: orbit.length, key: referenceKey(frame) };
     }
 
     let last: Snapshot | null = null;
@@ -214,7 +227,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
     let fence: WebGLSync | null = null;
     let pass = 0;
 
-    // True while the GPU is still working through the previous frame. Queueing more only adds lag.
+    // still drawing the last frame
     function gpuBusy(): boolean {
         if (!fence) return false;
         if (gl.getSyncParameter(fence, gl.SYNC_STATUS) !== gl.SIGNALED) return true;
@@ -223,8 +236,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
         return false;
     }
 
-    // Each pass is wrapped in an occlusion query. Finished pixels draw nothing (see the shader), so a
-    // pass that drew no samples means every pixel is done, often long before the step limit.
+    // finished pixels discard, so 0 samples = all done
     let generation = 0;
     let finishedGeneration = -1;
     const queries: { query: WebGLQuery; generation: number }[] = [];
@@ -278,6 +290,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
         gl.uniform1f(u.u_bailout, frame.iterCap === null ? 256 : 4);
         gl.uniform2f(u.u_refC, toNumber(reference.cx), toNumber(reference.cy));
         gl.uniform1i(u.u_shapeTest, upp > SHAPE_TEST_MIN_UPP ? 1 : 0);
+        gl.uniform1i(u.u_formula, frame.formula);
 
         const query = gl.createQuery();
         if (query) gl.beginQuery(gl.ANY_SAMPLES_PASSED_CONSERVATIVE, query);
@@ -289,9 +302,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
         [read, write] = [write, read];
     }
 
-    // Draws the colours of the current state to the screen, or into the saved image when `into` is set.
-    // On screen, pixels still iterating borrow from the saved image, moved and scaled to match the
-    // view, so motion shows a smooth picture instead of holes or a stretched low-resolution frame.
+    // into: commit to the saved image. else screen, old image under unfinished px
     function drawColours(frame: Frame, grid: Grid, sub: [number, number], into: Target | null): void {
         if (!read || !image) return;
         gl.bindFramebuffer(gl.FRAMEBUFFER, into ? into.framebuffer : null);
@@ -300,7 +311,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
         gl.activeTexture(gl.TEXTURE0);
         gl.bindTexture(gl.TEXTURE_2D, read.texture);
         gl.activeTexture(gl.TEXTURE1);
-        // Drawing into the image while it is bound for sampling would be a feedback loop.
+        // avoid a feedback loop
         gl.bindTexture(gl.TEXTURE_2D, into ? orbitTexture : image.texture);
         const u = show.uniforms;
         gl.uniform1i(u.u_state, 0);
@@ -330,8 +341,8 @@ export const createMandelbrot: FractalFactory = (gl) => {
     }
 
     return {
-        id: 'mandelbrot',
-        name: 'Mandelbrot',
+        id: 'escape-time',
+        name: 'Escape-time',
         draw(frame) {
             const { view, width, height } = frame;
             const maxIter = frame.iterCap ?? iterationsFor(frame.zoom);
@@ -346,7 +357,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
             };
             ensureTargets(grid.width, grid.height, width, height);
             pollQueries();
-            // Skip the frame instead of stacking work on a GPU that is still behind.
+            // gpu behind, skip
             if (gpuBusy()) {
                 chunk = Math.max(MIN_CHUNK, Math.floor(chunk * 0.7));
                 return true;
@@ -358,17 +369,16 @@ export const createMandelbrot: FractalFactory = (gl) => {
             const offsetY = (): number => (reference ? toNumber(view.cy - reference.cy) / upp : Infinity);
             if (
                 !reference ||
+                reference.key !== referenceKey(frame) ||
                 reference.iterations < maxIter ||
                 Math.abs(offsetX()) > limit ||
                 Math.abs(offsetY()) > limit
             ) {
-                setReference(view.cx, view.cy, maxIter);
+                setReference(frame, view.cx, view.cy, maxIter);
             }
             if (!reference) return false;
 
-            // The grid sits a whole number of grid pixels from the reference, so a pan moves every
-            // finished pixel by whole pixels and they can be carried over instead of computed again.
-            // The colour pass makes up the leftover fraction, so the picture still moves smoothly.
+            // whole-px grid so pans can shift finished pixels; colour pass adds the fraction
             const rawX = offsetX();
             const rawY = offsetY();
             const sx = Math.round(rawX);
@@ -415,7 +425,7 @@ export const createMandelbrot: FractalFactory = (gl) => {
                 });
                 done += chunk;
             }
-            // Once every pixel is finished, keep the picture as the backdrop for the next view.
+            // keep as backdrop
             if (done >= maxIter && committed !== last && image) {
                 drawColours(frame, grid, sub, image);
                 imageView = { cx: view.cx, cy: view.cy, upp: frame.unitsPerPixel, width, height };

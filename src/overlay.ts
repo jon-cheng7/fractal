@@ -1,11 +1,11 @@
-// 2D layer over the fractal: the complex-plane axes and the orbit of one point, drawn where they really are on the plane.
+// 2D overlay: axes and orbit path
 
 import type { DeepView, PlanePoint } from './math/deep-view.ts';
 import { toNumber } from './math/fixed.ts';
 import type { Orbit } from './math/orbit.ts';
 import type { Size } from './view.ts';
 
-// Past this zoom the axes are off screen and an orbit is too small to see, so both are skipped.
+// nothing visible past this
 const MAX_ZOOM = 1e9;
 const ORBIT_STEPS = 60;
 const LABELLED_STEPS = 6;
@@ -21,7 +21,10 @@ export interface OverlayScene {
     size: Size;
     zoom: number;
     axes: boolean;
-    /** The point c and its orbit, or null for none. */
+    /** -1 for the ship (upside down) */
+    imagSign: 1 | -1;
+    /** traced point is z0 */
+    julia: boolean;
     orbit: { c: PlanePoint; path: Orbit } | null;
 }
 
@@ -29,7 +32,7 @@ export interface Overlay {
     draw(scene: OverlayScene): void;
 }
 
-/** A round step of 1, 2 or 5 times a power of ten, near the given size. */
+/** 1, 2 or 5 × 10^n */
 function niceStep(raw: number): number {
     const power = 10 ** Math.floor(Math.log10(raw));
     const unit = raw / power;
@@ -51,7 +54,7 @@ export function createOverlay(parent: HTMLElement): Overlay {
     let drewSomething = true;
 
     return {
-        draw({ view, size, zoom, axes, orbit }) {
+        draw({ view, size, zoom, axes, imagSign, julia, orbit }) {
             if (!ctx) return;
             const show = zoom < MAX_ZOOM && (axes || orbit !== null);
             if (!show && !drewSomething) return;
@@ -68,7 +71,7 @@ export function createOverlay(parent: HTMLElement): Overlay {
             drewSomething = show;
             if (!show) return;
 
-            // Plane to screen. Fine in float64 at the zooms this layer is drawn at.
+            // float64 fine at these zooms
             const cx = toNumber(view.cx);
             const cy = toNumber(view.cy);
             const sx = (x: number): number => size.w / 2 + (x - cx) / view.scale;
@@ -82,7 +85,7 @@ export function createOverlay(parent: HTMLElement): Overlay {
                 const right = cx + (size.w / 2) * view.scale;
                 const bottom = cy - (size.h / 2) * view.scale;
                 const top = cy + (size.h / 2) * view.scale;
-                // Pin each axis to the screen edge when the real zero line is off screen.
+                // pin axes to the edge when off screen
                 const ax = Math.min(size.w - 1, Math.max(0, sx(0)));
                 const ay = Math.min(size.h - 1, Math.max(0, sy(0)));
 
@@ -106,16 +109,16 @@ export function createOverlay(parent: HTMLElement): Overlay {
                     const py = sy(y);
                     ctx.moveTo(ax - 4, py);
                     ctx.lineTo(ax + 4, py);
-                    if (Math.abs(y) > step / 2) ctx.fillText(`${label(y, step)}i`, ax + 7, py - 3);
+                    if (Math.abs(y) > step / 2) ctx.fillText(`${label(y * imagSign, step)}i`, ax + 7, py - 3);
                 }
                 ctx.stroke();
                 ctx.fillText('REAL →', size.w - 52, ay - 8);
-                ctx.fillText('↑ IMAGINARY', ax + 7, 16);
+                ctx.fillText(imagSign === 1 ? '↑ IMAGINARY' : '↓ IMAGINARY', ax + 7, 16);
             }
 
             if (orbit) {
                 const { points, length } = orbit.path;
-                // The escape circle: once z is outside it, it never comes back.
+                // escape circle
                 ctx.strokeStyle = LINE;
                 ctx.setLineDash([4, 5]);
                 ctx.beginPath();
@@ -144,7 +147,7 @@ export function createOverlay(parent: HTMLElement): Overlay {
                     ctx.fill();
                     if (n <= LABELLED_STEPS) {
                         ctx.fillStyle = MUTED;
-                        ctx.fillText(n === 0 ? 'z₀ = 0' : `z${n}`, px + 6, py - 6);
+                        ctx.fillText(n === 0 && !julia ? 'z₀ = 0' : `z${n}`, px + 6, py - 6);
                     }
                 }
 
@@ -156,7 +159,7 @@ export function createOverlay(parent: HTMLElement): Overlay {
                 ctx.arc(px, py, 7, 0, Math.PI * 2);
                 ctx.stroke();
                 ctx.fillStyle = CYAN;
-                ctx.fillText('c', px + 10, py + 14);
+                ctx.fillText(julia ? 'z₀' : 'c', px + 10, py + 14);
             }
         },
     };

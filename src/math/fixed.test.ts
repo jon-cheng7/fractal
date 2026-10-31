@@ -1,4 +1,4 @@
-// Tests for the BigInt fixed-point helpers.
+// Fixed-point tests
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -37,10 +37,7 @@ describe('fixed', () => {
         const text = '-0.743643887037158704752191506114774';
         assert.equal(format(parse(text), 33), text);
         assert.equal(format(parse('1'), 5), '1.00000');
-        assert.equal(
-            format(parse('0.000000000000000000000000000001'), 30),
-            '0.000000000000000000000000000001',
-        );
+        assert.equal(format(parse('0.000000000000000000000000000001'), 30), '0.000000000000000000000000000001');
     });
 
     it('rejects text that is not a decimal', () => {

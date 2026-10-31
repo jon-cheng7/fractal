@@ -1,4 +1,4 @@
-// Tests for the fixed-point reference orbit.
+// Reference orbit tests
 
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -19,15 +19,12 @@ describe('orbit', () => {
 
     it('alternates 0, -1 for the period-2 point c = -1', () => {
         const orbit = computeOrbit(fromNumber(-1), 0n, 6);
-        const reals = Array.from(
-            { length: 7 },
-            (_, n) => point(orbit.points, n)[0],
-        );
+        const reals = Array.from({ length: 7 }, (_, n) => point(orbit.points, n)[0]);
         assert.equal(reals.join(), '0,-1,0,-1,0,-1,0');
     });
 
     it('stops at the first point past the bailout radius', () => {
-        // c = 2 gives 0, 2, 6, 38: only 38 has |z|² above 256.
+        // 0, 2, 6, 38: only 38 passes 256
         const orbit = computeOrbit(fromNumber(2), 0n, 100);
         assert.equal(orbit.escaped, true);
         assert.equal(orbit.length, 4);
@@ -37,9 +34,7 @@ describe('orbit', () => {
     it('follows the exact preperiodic path for c = i', () => {
         // 0, i, -1+i, -i, -1+i, -i, ...
         const orbit = computeOrbit(0n, fromNumber(1), 7);
-        const path = Array.from({ length: 8 }, (_, n) =>
-            point(orbit.points, n).join('/'),
-        );
+        const path = Array.from({ length: 8 }, (_, n) => point(orbit.points, n).join('/'));
         assert.equal(path.join(' '), '0/0 0/1 -1/1 0/-1 -1/1 0/-1 -1/1 0/-1');
         assert.equal(orbit.escaped, false);
     });
@@ -58,7 +53,7 @@ describe('orbit', () => {
     });
 
     it('runs 20,000 iterations quickly', () => {
-        // c = 1/4 is the cardioid's cusp: parabolic, so it stays bounded for ever.
+        // cusp: parabolic, stays bounded
         const start = Date.now();
         const orbit = computeOrbit(parse('0.25'), 0n, 20000);
         assert.equal(orbit.escaped, false);

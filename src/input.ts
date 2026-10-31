@@ -1,29 +1,24 @@
-// Pointer, wheel and keyboard input. Turns raw events into pan and zoom calls and keeps no state beyond the active pointers.
+// Pointer, wheel, keyboard → handler calls
 
 import type { Point, Size } from './view.ts';
 
 export interface InputHandlers {
-    /** Drag the content by this many CSS pixels, applied at once. */
     pan(dx: number, dy: number): void;
-    /** Like pan, but eased in over a few frames. */
+    /** eased pan */
     nudge(dx: number, dy: number): void;
-    /** Multiply the scale by `factor` about a point in CSS pixels, eased in when `smooth`. */
+    /** eased when smooth */
     zoom(factor: number, px: number, py: number, smooth: boolean): void;
-    /** Two fingers went down at this midpoint. */
     pinchStart(px: number, py: number): void;
-    /** The fingers' midpoint now, and their spread relative to when the pinch started. */
+    /** spread relative to pinch start */
     pinch(px: number, py: number, spread: number): void;
-    /** The last pointer was lifted. */
     release(): void;
-    /** A mouse moved over the stage with no button down. */
     hover(px: number, py: number): void;
-    /** A press and release that barely moved. */
     tap(px: number, py: number): void;
-    /** Two taps in quick succession at about the same spot. */
     doubleTap(px: number, py: number): void;
     toggleLens(): void;
     toggleAxes(): void;
     toggleLearn(): void;
+    openJulia(): void;
     reset(): void;
     toggleHud(): void;
     size(): Size;
@@ -32,7 +27,7 @@ export interface InputHandlers {
 const KEY_PAN_PX = 80;
 const KEY_ZOOM_IN = 0.8;
 const WHEEL_RATE = 0.0015;
-// Trackpad pinch arrives as ctrl+wheel with much smaller deltas.
+// trackpad pinch = ctrl+wheel, small deltas
 const PINCH_RATE = 0.01;
 const DOUBLE_TAP_MS = 320;
 const DOUBLE_TAP_PX = 30;
@@ -53,14 +48,13 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
         return { x: e.clientX - box.left, y: e.clientY - box.top };
     }
 
-    // Where and when a single press began, to tell a tap from a drag.
     let press: (Point & { t: number }) | null = null;
     let lastTap: (Point & { t: number }) | null = null;
-    // Set once a second finger lands, until every finger is up. `spread` is the finger distance when the pinch began.
+    // pinched until all fingers up; spread = distance at pinch start
     let pinched = false;
     let spread = 0;
 
-    // Buttons and overlays mark themselves, so pressing them doesn't also pan the view.
+    // UI marks itself with data-fx-ui
     function onUi(e: Event): boolean {
         return e.target instanceof Element && e.target.closest('[data-fx-ui]') !== null;
     }
@@ -90,7 +84,7 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
         pointers.set(e.pointerId, after);
 
         if (pointers.size === 1) {
-            // A finger left over from a pinch shouldn't suddenly start dragging the view.
+            // leftover pinch finger
             if (!pinched) handlers.pan(after.x - before.x, after.y - before.y);
         } else if (pointers.size === 2) {
             const [a, b] = [...pointers.values()];
@@ -98,8 +92,7 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
         }
     }
 
-    // Measured from the start of the pinch rather than event to event: the two fingers report in turn,
-    // and adding up those half-steps made the view slide sideways while zooming.
+    // from pinch start, not per event: fingers report in turn and per-event deltas drifted
     function pinchMove(a: Point, b: Point): void {
         const mid = midpoint(a, b);
         const d = distance(a, b);
@@ -114,13 +107,13 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
         pointers.delete(e.pointerId);
         spread = 0;
         if (pointers.size > 0) return;
-        // A pinch ends where it is: no coasting, and lifting the fingers isn't a tap.
+        // pinch end: no coast, no tap
         if (pinched) {
             pinched = false;
             press = null;
             return;
         }
-        // On touch the view stops where the finger lifts; coasting there felt like the view slipping away.
+        // no coasting on touch
         if (e.pointerType !== 'touch') handlers.release();
         const at = local(e);
         if (
@@ -152,12 +145,12 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
 
     function onKeyDown(e: KeyboardEvent): void {
         if (e.ctrlKey || e.metaKey || e.altKey) return;
-        // Sliders and buttons in the panels use these keys themselves.
+        // sliders keep their keys
         if (e.target instanceof HTMLInputElement) return;
         const step = e.shiftKey ? KEY_PAN_PX * 3 : KEY_PAN_PX;
         const { w, h } = handlers.size();
 
-        // Panning the view one way drags the content the other way.
+        // content moves opposite the view
         switch (e.key) {
             case 'ArrowLeft':
                 handlers.nudge(step, 0);
@@ -189,6 +182,10 @@ export function attachInput(el: HTMLElement, handlers: InputHandlers): () => voi
             case 'a':
             case 'A':
                 handlers.toggleAxes();
+                break;
+            case 'j':
+            case 'J':
+                handlers.openJulia();
                 break;
             case 'l':
             case 'L':

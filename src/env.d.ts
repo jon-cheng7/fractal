@@ -1,4 +1,4 @@
-// Ambient types for Vite's CSS and ?raw shader imports, and the one import.meta.env flag we read.
+// Vite ambient types
 declare module '*.css';
 
 declare module '*.glsl?raw' {
