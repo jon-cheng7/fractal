@@ -58,11 +58,6 @@ body {
     cursor: grabbing;
 }
 
-.fx-stage:focus-visible {
-    outline: 1px solid var(--fx-accent);
-    outline-offset: -1px;
-}
-
 .fx-canvas,
 .fx-overlay {
     position: absolute;

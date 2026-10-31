@@ -26,7 +26,19 @@ import { createStage } from './stage.ts';
 import { createControls } from './ui.ts';
 import type { Size } from './view.ts';
 
-// Pixels times iterations is the GPU's real workload, so deep views drop resolution while moving.
+// Two rendering modes. Desktop: iteration samples at a fixed density per CSS pixel, so quality never visibly
+// changes, with the colour pass drawing a boundary line and glow at full screen resolution on top.
+// Phones: the original banded look, sharp when still, dropping resolution only while zooming.
+const TOUCH = matchMedia('(pointer: coarse)').matches;
+const GRID_DENSITY = 1;
+
+// Desktop zoom style: while zooming the picture is drawn in square blocks this many CSS pixels wide, one
+// sample per block. Once the zoom stops it steps down through the sizes, each step shown once it's finished
+// (and for at least BLOCK_DWELL_MS, so the steps read as deliberate), ending at full detail (0).
+const BLOCKS = [12, 6, 3, 0];
+const BLOCK_DWELL_MS = 70;
+
+// Pixels times iterations is the GPU's real workload, so on phones deep views drop resolution while zooming.
 const WORK_BUDGET = 6e8;
 const WORK_SCALES = [1, 0.7, 0.5, 0.35];
 
@@ -108,6 +120,11 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
 
     let view: DeepView = viewFromHash(stage.css) ?? fitDeepView(stage.css);
     let lastInput = -Infinity;
+    let lastZoom = -Infinity;
+    // Desktop starts blocky, so the first view resolves in the same steps as a zoom.
+    let blockStep = TOUCH ? BLOCKS.length - 1 : 0;
+    let blockSince = 0;
+    let wasRefining = false;
     let wasInteracting = false;
     let fps: number | null = null;
     let contextLost = false;
@@ -170,6 +187,7 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
     /** Applies this frame's share of any eased motion. Returns true while something is still moving. */
     function glide(dt: number, now: number): boolean {
         if (fly) {
+            lastZoom = now;
             flyStep(now);
             return true;
         }
@@ -182,6 +200,7 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             view = deepZoomAt(view, stage.css, anchor.x, anchor.y, Math.exp(step));
             // Stuck against the zoom limit: drop what's left instead of animating nothing.
             pendingZoom = view.scale === before ? 0 : pendingZoom - step;
+            lastZoom = now;
             moving = pendingZoom !== 0;
         }
 
@@ -230,12 +249,21 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         });
     }
 
+    /** The current block size in canvas pixels. */
+    function blockSize(): number {
+        const css = BLOCKS[blockStep] ?? 0;
+        return css > 0 ? Math.max(1, Math.round((css * stage.buffer.w) / stage.css.w)) : 1;
+    }
+
     function frameInfo(frameMs: number | null): Frame {
         const { css, buffer } = stage;
         return {
             view,
             width: buffer.w,
             height: buffer.h,
+            gridScale: TOUCH ? 1 : GRID_DENSITY / (buffer.w / css.w) / blockSize(),
+            block: TOUCH ? 1 : blockSize(),
+            look: TOUCH ? 'classic' : 'glow',
             unitsPerPixel: (view.scale * css.w) / buffer.w,
             zoom: deepZoomLevel(view, css),
             frameMs,
@@ -251,16 +279,27 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
         const interacting = now - lastInput < SETTLE_MS;
 
         if (interacting && frameMs !== null) {
-            quality.update(frameMs);
             const instant = 1000 / frameMs;
             fps = fps === null ? instant : fps * 0.8 + instant * 0.2;
         }
 
-        // Low resolution while moving, then full resolution once input settles.
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const iterations = iterCap ?? iterationsFor(deepZoomLevel(view, stage.css));
-        const work = workScale(stage.css, dpr, iterations);
-        stage.setRenderScale(interacting ? Math.min(quality.scale, work) : 1);
+        if (!TOUCH) {
+            if (now - lastZoom < SETTLE_MS) {
+                blockStep = 0;
+                blockSince = now;
+            } else if (blockStep < BLOCKS.length - 1 && !wasRefining && now - blockSince > BLOCK_DWELL_MS) {
+                blockStep++;
+                blockSince = now;
+            }
+        }
+        if (TOUCH) {
+            if (interacting && frameMs !== null) quality.update(frameMs);
+            const dpr = Math.min(window.devicePixelRatio || 1, 2);
+            const iterations = iterCap ?? iterationsFor(deepZoomLevel(view, stage.css));
+            const zooming = now - lastZoom < SETTLE_MS;
+            const scale = Math.min(quality.scale, workScale(stage.css, dpr, iterations));
+            stage.setRenderScale(zooming ? scale : 1);
+        }
         const info = frameInfo(frameMs);
         let refining: boolean;
         try {
@@ -290,7 +329,8 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
 
         if (wasInteracting && !interacting) writeHash(view, stage.css);
         wasInteracting = interacting;
-        if (interacting || refining) loop.request();
+        wasRefining = refining;
+        if (interacting || refining || blockStep < BLOCKS.length - 1) loop.request();
     }
 
     const loop = createLoop(tick);
@@ -409,6 +449,7 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
                 pendingZoom += Math.log(factor);
             } else {
                 view = deepZoomAt(view, stage.css, px, py, factor);
+                lastZoom = performance.now();
             }
             touch();
         },
@@ -423,6 +464,7 @@ function start(root: HTMLElement, canvas: HTMLCanvasElement): void {
             const scale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, pinchFrom.scale / spread));
             const offset = deepScreenToPlane({ cx: 0n, cy: 0n, scale }, stage.css, px, py);
             view = { cx: pinchFrom.at.x - offset.x, cy: pinchFrom.at.y - offset.y, scale };
+            lastZoom = performance.now();
             touch();
         },
         release() {

@@ -4,10 +4,12 @@ import type { DeepView } from '../math/deep-view.ts';
 
 export interface Frame {
     view: DeepView;
-    /** Pixel buffer size, which is smaller than the stage while interacting. */
+    /** Canvas pixel size. */
     width: number;
     height: number;
-    /** Plane units per buffer pixel. */
+    /** How many iteration samples to take per canvas pixel along each axis, fixed per device. */
+    gridScale: number;
+    /** Plane units per canvas pixel. */
     unitsPerPixel: number;
     /** Zoom relative to the fitted view. */
     zoom: number;
@@ -15,6 +17,10 @@ export interface Frame {
     frameMs: number | null;
     /** A fixed step limit for teaching how the set is built, or null for the automatic one. */
     iterCap: number | null;
+    /** Draw the picture in square blocks this many canvas pixels wide, 1 for normal. */
+    block: number;
+    /** 'glow' draws a boundary line and glow; 'classic' only the escape-count bands. */
+    look: 'glow' | 'classic';
     /** Opacity of a fill inside the set, 0 for none. */
     fillInside: number;
 }
