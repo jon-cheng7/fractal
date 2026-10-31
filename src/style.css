@@ -6,8 +6,7 @@
     --fx-muted: #888;
     --fx-line: rgba(255, 255, 255, 0.15);
     --fx-accent: #c5fb45;
-    --fx-mono:
-        'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --fx-mono: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
     color-scheme: dark;
 }
 

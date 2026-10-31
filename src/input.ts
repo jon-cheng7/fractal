@@ -26,10 +26,7 @@ function midpoint(a: Point, b: Point): Point {
     return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
 }
 
-export function attachInput(
-    el: HTMLElement,
-    handlers: InputHandlers,
-): () => void {
+export function attachInput(el: HTMLElement, handlers: InputHandlers): () => void {
     const pointers = new Map<number, Point>();
 
     function local(e: MouseEvent): Point {

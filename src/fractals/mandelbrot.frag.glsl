@@ -1,45 +1,45 @@
 #version 300 es
-// Mandelbrot escape-time shader. Outside the set is lime light on a transparent canvas; inside stays clear.
+// Colours the saved perturbation state. Pixels still iterating borrow from the last finished image, reprojected to the current view.
 precision highp float;
+precision highp sampler2D;
 
+uniform sampler2D u_state;
+uniform sampler2D u_image;
+uniform bool u_useImage;
 uniform vec2 u_res;
-uniform vec2 u_center;
-uniform float u_upp;
-uniform int u_maxIter;
+// Size of the area of u_image that holds the old picture, and of the whole texture.
+uniform vec2 u_imgRes;
+uniform vec2 u_alloc;
+// Current pixel size divided by the old image's pixel size, and the view's offset from it in old pixels.
+uniform float u_ratio;
+uniform vec2 u_shift;
 
 out vec4 o_color;
 
 const vec3 LIME = vec3(0.773, 0.984, 0.271);
-const float BAILOUT = 256.0;
 
 void main() {
-    vec2 c = u_center + (gl_FragCoord.xy - 0.5 * u_res) * u_upp;
+    float w = texelFetch(u_state, ivec2(gl_FragCoord.xy), 0).w;
 
-    // The main cardioid and the period-2 bulb never escape, so skip iterating them.
-    float x = c.x - 0.25;
-    float q = x * x + c.y * c.y;
-    float bulb = (c.x + 1.0) * (c.x + 1.0) + c.y * c.y;
-    if (q * (q + x) < 0.25 * c.y * c.y || bulb < 0.0625) {
+    // Still iterating: show the old picture where this pixel used to be.
+    if (w >= 0.0) {
+        o_color = vec4(0.0);
+        if (u_useImage) {
+            vec2 q = 0.5 * u_imgRes + (gl_FragCoord.xy - 0.5 * u_res) * u_ratio + u_shift;
+            if (all(greaterThanEqual(q, vec2(0.0))) && all(lessThan(q, u_imgRes))) {
+                o_color = texture(u_image, q / u_alloc);
+            }
+        }
+        return;
+    }
+
+    // Inside the set.
+    if (w > -1.0) {
         o_color = vec4(0.0);
         return;
     }
 
-    vec2 z = vec2(0.0);
-    float r2 = 0.0;
-    int i = 0;
-    for (; i < u_maxIter; i++) {
-        z = vec2(z.x * z.x - z.y * z.y, 2.0 * z.x * z.y) + c;
-        r2 = dot(z, z);
-        if (r2 > BAILOUT) break;
-    }
-
-    if (i >= u_maxIter) {
-        o_color = vec4(0.0);
-        return;
-    }
-
-    // Smooth iteration count removes the banding between whole steps.
-    float nu = float(i) + 1.0 - log2(0.5 * log(r2));
+    float nu = -w - 1.0;
     float band = 0.5 + 0.5 * cos(6.2831853 * nu * 0.04);
     // Points that escape quickly are far from the set and stay dark, so only the filaments glow.
     float edge = smoothstep(6.0, 40.0, nu);
